@@ -723,139 +723,142 @@ function calSetTab(t){
 }
 
 function renderCalGrid(period,emps,ct){
-  // All 30-min slots 8:00-19:00
-  const allSlots=[];
-  for(let h=8;h<=19;h++){allSlots.push(pad(h)+':00');if(h<19)allSlots.push(pad(h)+':30');}
+  // Timeline bounds: 8:00 to 19:30
+  const T_START=8*60;   // 480 min
+  const T_END=19*60+30; // 1170 min
+  const T_SPAN=T_END-T_START; // 690 min
 
-  // ── IMPROVEMENT 2 (prep): find which slots have at least one person working
-  // We need all days first, so collect day data in one pass
+  // Build day rows
   const dayRows=[];
-  const d=new Date(period.start_date+'T00:00:00'),end=new Date(period.end_date+'T00:00:00');
-  const cur=new Date(d);
+  const cur=new Date(period.start_date+'T00:00:00');
+  const end=new Date(period.end_date+'T00:00:00');
   while(cur<=end){
     const ds=cur.toISOString().slice(0,10);
-    const dow=cur.getDay(),di=dow===0?6:dow-1,dn=DAYS[di],wk=dow===0||dow===6;
+    const dow=cur.getDay(),dn=DAYS[dow===0?6:dow-1],wk=dow===0||dow===6;
     const eds=emps.map(e=>{
       let act=null;
       (e.schedules||[]).forEach(s=>{if((s.days||[]).includes(dn)&&ds>=s.from_date&&ds<=s.to_date)act=s;});
       return{emp:e,sched:act};
     });
-    dayRows.push({ds,dow,di,dn,wk,eds});
+    dayRows.push({ds,dow,dn,wk,eds});
     cur.setDate(cur.getDate()+1);
   }
 
-  // Only keep slots where at least one employee works at some point in the period
-  const usedSlots=allSlots.filter(slot=>{
-    const sp=slot.split(':'),sm=+sp[0]*60+ +sp[1];
-    return dayRows.some(row=>row.eds.some(ed=>{
-      if(!ed.sched)return false;
-      const a=ed.sched.shift_start.split(':'),b=ed.sched.shift_end.split(':');
-      return sm>= +a[0]*60+ +a[1]&&sm< +b[0]*60+ +b[1];
-    }));
+  // Hour tick marks for the header
+  const ticks=[];
+  for(let h=8;h<=19;h++) ticks.push(h);
+
+  // Bar height and row height
+  const BAR_H=14;   // px per employee bar
+  const BAR_GAP=3;  // gap between bars
+  const ROW_PAD=6;  // top+bottom padding
+  const DATE_W=76;  // px for the date column
+
+  // Assign a fixed color per employee (by index so it's consistent)
+  const EMP_COLORS_A=['#185FA5','#1a7abd','#1d8fd4','#2196c4'];
+  const EMP_COLORS_C=['#0f6e56','#158c6a','#1aaa7f','#1bc494'];
+
+  let aIdx=0,cIdx=0;
+  const empColors=emps.map(e=>{
+    if(e.type==='A') return EMP_COLORS_A[aIdx++%EMP_COLORS_A.length];
+    return EMP_COLORS_C[cIdx++%EMP_COLORS_C.length];
   });
 
-  // ── SLOT WIDTH: each slot is a fixed 38px wide column
-  const SLOT_W=38;
-
-  // ── BUILD HTML ──────────────────────────────────────────
-  // Wrapper: outer div is the scroll container, inner table sets the width
+  // Build HTML
   let html=`<div style="font-size:13px;margin-bottom:6px;color:#888">Period: <strong>${period.name}</strong> | ${fmtD(period.start_date)} &ndash; ${fmtD(period.end_date)}</div>`;
-  html+=`<div style="display:flex;gap:14px;margin-bottom:10px;font-size:12px">
-    <span><span style="display:inline-block;width:10px;height:10px;background:#B5D4F4;border-radius:2px;margin-right:3px"></span>APN</span>
-    <span><span style="display:inline-block;width:10px;height:10px;background:#9FE1CB;border-radius:2px;margin-right:3px"></span>Counseling</span>
-  </div>`;
 
-  // Table uses position:relative so sticky thead works inside overflow container
-  html+=`<div style="overflow-x:auto;overflow-y:auto;max-height:65vh;border:1px solid #e5e5e5;border-radius:8px">`;
-  html+=`<table class="calt" style="min-width:max-content">`;
-
-  // ── STICKY HEADER ROW (improvement 1) ──────────────────
-  html+=`<thead style="position:sticky;top:0;z-index:10"><tr>`;
-  html+=`<th class="datecol th-corner" style="min-width:72px;width:72px;position:sticky;left:0;z-index:11;background:#f7f7f5">Date</th>`;
-  usedSlots.forEach(t=>{
-    // Bold on the hour
-    const isHour=t.endsWith(':00');
-    html+=`<th style="min-width:${SLOT_W}px;width:${SLOT_W}px;font-size:10px;${isHour?'font-weight:700;border-left:2px solid #d0d0d0;':''}">${t}</th>`;
+  // Legend
+  html+=`<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;font-size:12px">`;
+  emps.forEach((e,i)=>{
+    html+=`<span style="display:flex;align-items:center;gap:5px">
+      <span style="display:inline-block;width:22px;height:10px;border-radius:3px;background:${empColors[i]}"></span>
+      <span>${e.name}</span>
+      <span style="padding:1px 6px;border-radius:20px;font-size:10px;background:${e.type==='A'?'#B5D4F4':'#9FE1CB'};color:${e.type==='A'?'#0C447C':'#085041'}">${e.type==='A'?'APN':'C'}</span>
+    </span>`;
   });
-  emps.forEach(e=>{
-    const col=e.type==='A'?'#0C447C':'#085041';
-    html+=`<th style="min-width:52px;font-size:10px;color:${col}">${e.name.split(' ').map(x=>x[0]).join('')}<br>net hrs</th>`;
-  });
-  html+=`</tr></thead><tbody>`;
+  html+=`</div>`;
 
-  // ── DAY ROWS ───────────────────────────────────────────
-  let prevWeek=-1;
+  // Outer scroll container
+  html+=`<div style="overflow-x:auto;overflow-y:auto;max-height:65vh;border:1px solid #e0e0e0;border-radius:8px;background:#fff">`;
+  html+=`<div style="min-width:700px">`;
+
+  // ── STICKY HEADER: date col + timeline ──────────────
+  html+=`<div style="display:flex;position:sticky;top:0;z-index:20;background:#f7f7f5;border-bottom:2px solid #d0d0d0">`;
+  // Date label
+  html+=`<div style="flex-shrink:0;width:${DATE_W}px;font-size:11px;font-weight:600;color:#555;padding:6px 8px;border-right:2px solid #d0d0d0;position:sticky;left:0;z-index:21;background:#f7f7f5">Date</div>`;
+  // Timeline ticks
+  html+=`<div style="flex:1;position:relative;height:28px">`;
+  ticks.forEach(h=>{
+    const pct=((h*60-T_START)/T_SPAN*100).toFixed(3);
+    const label=h<=12?h+':00 AM':h===12?'12:00 PM':(h-12)+':00 PM';
+    html+=`<div style="position:absolute;left:${pct}%;top:0;height:100%;border-left:1px solid #d0d0d0;display:flex;align-items:center;padding-left:3px">
+      <span style="font-size:10px;color:#888;white-space:nowrap">${label}</span>
+    </div>`;
+  });
+  html+=`</div></div>`;
+
+  // ── DAY ROWS ─────────────────────────────────────────
   dayRows.forEach(({ds,dow,dn,wk,eds})=>{
-    // ── IMPROVEMENT 4: week separator ─────────────────
-    // Monday = start of a new week (dow===1), insert a week header row
+    // Week separator on Monday
     if(dow===1){
-      const weekDt=new Date(ds+'T00:00:00');
-      const weekEnd=new Date(weekDt);weekEnd.setDate(weekEnd.getDate()+6);
-      const colCount=usedSlots.length+emps.length+1;
-      const mo=new Intl.DateTimeFormat('en-US',{month:'short'}).format(weekDt);
-      const moE=new Intl.DateTimeFormat('en-US',{month:'short'}).format(weekEnd);
-      const label=`Week of ${mo} ${weekDt.getDate()}${mo!==moE?' – '+moE+' '+weekEnd.getDate():''}`;
-      html+=`<tr><td colspan="${colCount}" style="background:#e8edf2;color:#3a4a5c;font-size:11px;font-weight:600;padding:4px 10px;letter-spacing:.04em;border-top:2px solid #c5cdd8;position:sticky;left:0">${label}</td></tr>`;
+      const wdt=new Date(ds+'T00:00:00');
+      const wend=new Date(wdt);wend.setDate(wend.getDate()+6);
+      const mo=new Intl.DateTimeFormat('en-US',{month:'short'}).format(wdt);
+      const moE=new Intl.DateTimeFormat('en-US',{month:'short'}).format(wend);
+      const lbl=`Week of ${mo} ${wdt.getDate()}${mo!==moE?' – '+moE+' '+wend.getDate():''}`;
+      html+=`<div style="background:#e8edf2;color:#3a4a5c;font-size:11px;font-weight:600;padding:4px 10px;border-top:2px solid #c5cdd8;position:sticky;left:0">${lbl}</div>`;
     }
 
-    // ── DAY ROW ──────────────────────────────────────
-    const rowBg=wk?'#f5f5f3':'#fff';
-    html+=`<tr style="background:${rowBg}">`;
+    // How many employees work this day?
+    const workingEds=eds.filter(ed=>ed.sched);
+    const rowH=workingEds.length>0
+      ? ROW_PAD*2 + workingEds.length*(BAR_H+BAR_GAP) - BAR_GAP
+      : 28;
+    const rowBg=wk?'#f9f9f7':'#fff';
+    const rowBorder='border-bottom:1px solid #eeeeee;';
+
+    html+=`<div style="display:flex;${rowBorder}background:${rowBg};min-height:${rowH}px">`;
 
     // Date cell — sticky left
-    const dateLabel=fmtDs(ds);
-    html+=`<td class="datecol" style="font-size:11px;background:${wk?'#ededeb':'#f7f7f5'};border-right:2px solid #d0d0d0">`;
-    html+=`<strong>${dateLabel}</strong><br><span style="color:#888">${dn}</span></td>`;
+    html+=`<div style="flex-shrink:0;width:${DATE_W}px;padding:5px 8px;border-right:2px solid #d0d0d0;position:sticky;left:0;z-index:5;background:${wk?'#efefed':'#f7f7f5'}">`;
+    html+=`<div style="font-size:12px;font-weight:600;color:#222">${fmtDs(ds)}</div>`;
+    html+=`<div style="font-size:10px;color:#999">${dn}</div>`;
+    html+=`</div>`;
 
-    // ── IMPROVEMENT 3: shift bars ──────────────────────
-    // For each slot, instead of listing names, we show colored bars
-    // The bar starts at shift_start and spans to shift_end using CSS
-    // We use a single-row approach: each slot cell is colored if an employee
-    // is working, with a background color. If multiple employees overlap,
-    // we stack chips but much more compactly (just initials, no name).
-    usedSlots.forEach(slot=>{
-      const sp=slot.split(':'),sm=+sp[0]*60+ +sp[1];
-      // Find workers in this slot
-      const here=eds.filter(ed=>{
-        if(!ed.sched)return false;
-        const a=ed.sched.shift_start.split(':'),b=ed.sched.shift_end.split(':');
-        return sm>= +a[0]*60+ +a[1]&&sm< +b[0]*60+ +b[1];
-      });
-      const isHour=slot.endsWith(':00');
-      const borderLeft=isHour?'border-left:2px solid #d0d0d0;':'';
-      if(!here.length){
-        html+=`<td style="padding:0;${borderLeft}background:${rowBg}"></td>`;
-      } else {
-        // Check if this is the START of a shift for any employee
-        // (used to show initials label only at shift start)
-        const startingHere=here.filter(ed=>{
-          const a=ed.sched.shift_start.split(':');
-          return sm === +a[0]*60+ +a[1];
-        });
-        // Color: if all APN → blue, if all Counseling → green, mixed → gradient
-        const types=new Set(here.map(ed=>ed.emp.type));
-        let bg,border;
-        if(types.size===1&&types.has('A')){bg='#daeaf7';border='#185FA5';}
-        else if(types.size===1&&types.has('C')){bg='#c8f0e2';border='#0f6e56';}
-        else{bg='linear-gradient(135deg,#daeaf7 50%,#c8f0e2 50%)';border='#888';}
-        // Show initials only at shift start to avoid repetition
-        const label=startingHere.map(ed=>`<span style="font-size:9px;font-weight:600;color:${ed.emp.type==='A'?'#0C447C':'#085041'};white-space:nowrap">${ed.emp.name.split(' ').map(x=>x[0]).join('')}</span>`).join('<br>');
-        html+=`<td style="padding:1px 2px;background:${bg};border-left:2px solid ${border};${borderLeft}vertical-align:middle">${label}</td>`;
-      }
+    // Timeline area
+    html+=`<div style="flex:1;position:relative;min-height:${rowH}px">`;
+
+    // Hour grid lines (subtle)
+    ticks.forEach(h=>{
+      const pct=((h*60-T_START)/T_SPAN*100).toFixed(3);
+      html+=`<div style="position:absolute;left:${pct}%;top:0;bottom:0;border-left:1px solid #eeeeee;pointer-events:none"></div>`;
     });
 
-    // Net hours per employee
-    eds.forEach(ed=>{
-      if(ed.sched){
-        const nh=netHrs(ed.sched);
-        const col=ed.emp.type==='A'?'#0C447C':'#085041';
-        html+=`<td style="text-align:center;font-size:11px;font-weight:600;color:${col};border-left:1px solid #ddd">${nh.toFixed(1)}h</td>`;
-      }else html+=`<td style="border-left:1px solid #ddd"></td>`;
+    // Shift bars — one per working employee, stacked vertically
+    let barIndex=0;
+    eds.forEach((ed,ei)=>{
+      if(!ed.sched)return;
+      const a=ed.sched.shift_start.split(':'),b=ed.sched.shift_end.split(':');
+      const startMin=+a[0]*60+ +a[1];
+      const endMin=+b[0]*60+ +b[1];
+      const leftPct=((startMin-T_START)/T_SPAN*100).toFixed(3);
+      const widthPct=((endMin-startMin)/T_SPAN*100).toFixed(3);
+      const top=ROW_PAD+barIndex*(BAR_H+BAR_GAP);
+      const color=empColors[ei];
+      const name=ed.emp.name;
+      const nh=netHrs(ed.sched);
+      // Short label: first name + hours
+      const firstName=name.split(' ')[0];
+      html+=`<div style="position:absolute;left:${leftPct}%;width:${widthPct}%;top:${top}px;height:${BAR_H}px;background:${color};border-radius:3px;display:flex;align-items:center;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.15)">
+        <span style="font-size:10px;font-weight:600;color:#fff;white-space:nowrap;padding:0 5px;text-overflow:ellipsis;overflow:hidden">${firstName} &middot; ${nh.toFixed(1)}h</span>
+      </div>`;
+      barIndex++;
     });
-    html+=`</tr>`;
+
+    html+=`</div></div>`;
   });
 
-  html+=`</tbody></table></div>`;
+  html+=`</div></div>`;
   ct.innerHTML=html;
 }
 
