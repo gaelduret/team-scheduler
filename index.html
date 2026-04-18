@@ -72,6 +72,9 @@ td{padding:7px 9px;border-bottom:1px solid #f0f0f0}
 @keyframes spin{to{transform:rotate(360deg)}}
 .toast{position:fixed;bottom:24px;right:24px;background:#1a1a1a;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;z-index:999;opacity:0;transition:opacity .3s}
 .toast.show{opacity:1}
+.cal-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid #e5e5e5}
+.person-table th{background:#f7f7f5}
+.person-table tr:hover td{background:#fafafa}
 </style>
 </head>
 <body>
@@ -134,6 +137,21 @@ td{padding:7px 9px;border-bottom:1px solid #f0f0f0}
     <div class="pg" id="pg-calendar">
       <div class="ptitle">Schedule Calendar</div>
       <div id="cal-alert" style="display:none" class="alrt"></div>
+      <div class="cal-toolbar" id="cal-toolbar" style="display:none">
+        <div style="display:flex;align-items:center;gap:8px">
+          <label style="font-size:12px;color:#888;margin:0;white-space:nowrap">Period:</label>
+          <select id="cal-period-picker" onchange="calPickPeriod(this.value)" style="max-width:240px"></select>
+        </div>
+        <div style="display:flex;gap:4px">
+          <button class="tab active" id="cal-tab-grid" onclick="calSetTab('grid')">Full calendar</button>
+          <button class="tab" id="cal-tab-person" onclick="calSetTab('person')">By employee</button>
+        </div>
+        <div id="cal-person-picker-wrap" style="display:none;align-items:center;gap:8px">
+          <label style="font-size:12px;color:#888;margin:0;white-space:nowrap">Employee:</label>
+          <select id="cal-person-picker" onchange="calSetPerson(this.value)" style="max-width:200px"></select>
+        </div>
+        <button class="btn btns btnp" onclick="downloadCSV()" style="margin-left:auto">&#11015; Download CSV</button>
+      </div>
       <div id="cal-content"></div>
     </div>
 
@@ -164,18 +182,17 @@ td{padding:7px 9px;border-bottom:1px solid #f0f0f0}
 <div class="toast" id="toast"></div>
 
 <script>
-// ── Supabase ──────────────────────────────────────────────
 const SUPA_URL = 'https://cqmvotqsptqrzogvrulk.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNxbXZvdHFzcHRxcnpvZ3ZydWxrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY1MjgwODksImV4cCI6MjA5MjEwNDA4OX0.Yyxalgqg5BHsULgPDPXewJaQ23L7muldKVlSGxmMaTs';
 const db = supabase.createClient(SUPA_URL, SUPA_KEY);
 
-// ── Helpers ───────────────────────────────────────────────
 const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const DAYF = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 function pad(n){return n<10?'0'+n:''+n}
 function uid(){return 'x'+Math.random().toString(36).slice(2,10)}
 function fmtD(d){if(!d)return'';const p=d.split('-');return p[1]+'/'+p[2]+'/'+p[0];}
 function fmtDs(d){const dt=new Date(d+'T00:00:00');return(dt.getMonth()+1)+'/'+(dt.getDate());}
+function fmtFull(d){const dt=new Date(d+'T00:00:00');return dt.toLocaleDateString('en-US',{weekday:'short',year:'numeric',month:'short',day:'numeric'});}
 function toast(msg,err){
   const t=document.getElementById('toast');
   t.textContent=msg;t.style.background=err?'#a32d2d':'#1a1a1a';
@@ -183,14 +200,11 @@ function toast(msg,err){
 }
 function showMod(html){document.getElementById('modal-box').innerHTML=html;document.getElementById('overlay').classList.add('open');}
 function closeMod(){document.getElementById('overlay').classList.remove('open');document.getElementById('modal-box').innerHTML='';}
-function loading(id,on){const el=document.getElementById(id);if(el)el.disabled=on;}
 
-// ── State ─────────────────────────────────────────────────
-let currentUser = null;
-let currentPeriod = null;
-let empTab = 'list';
+let currentUser=null,currentPeriod=null,empTab='list',calTab='grid',calPersonId=null;
+let calCache={period:null,emps:null};
 
-// ── Auth ──────────────────────────────────────────────────
+// ── AUTH ──────────────────────────────────────────────────
 async function doLogin(){
   const u=document.getElementById('li-user').value.trim();
   const p=document.getElementById('li-pass').value;
@@ -209,16 +223,15 @@ async function doLogin(){
   else{document.getElementById('nav-viewer').style.display='flex';showCal();}
 }
 function doLogout(){
-  currentUser=null;currentPeriod=null;
+  currentUser=null;currentPeriod=null;calCache={period:null,emps:null};
   document.getElementById('app').style.display='none';
   document.getElementById('login-wrap').style.display='flex';
-  document.getElementById('li-user').value='';
-  document.getElementById('li-pass').value='';
+  document.getElementById('li-user').value='';document.getElementById('li-pass').value='';
   document.getElementById('nav-admin').style.display='none';
   document.getElementById('nav-viewer').style.display='none';
 }
 
-// ── Navigation ────────────────────────────────────────────
+// ── NAV ───────────────────────────────────────────────────
 function nav(p){
   document.querySelectorAll('#nav-admin .nb').forEach((b,i)=>{
     b.classList.toggle('active',['periods','employees','calendar','users'][i]===p);
@@ -248,7 +261,7 @@ async function renderPeriods(){
       <div style="display:flex;align-items:center;justify-content:space-between">
         <div>
           <div style="font-weight:500">${p.name}</div>
-          <div style="font-size:12px;color:#888;margin-top:2px">${fmtD(p.start_date)} → ${fmtD(p.end_date)}</div>
+          <div style="font-size:12px;color:#888;margin-top:2px">${fmtD(p.start_date)} &rarr; ${fmtD(p.end_date)}</div>
         </div>
         <div style="display:flex;gap:6px;align-items:center">
           ${currentPeriod===p.id?'<span style="font-size:11px;color:#185FA5;font-weight:500">Selected</span>':''}
@@ -284,10 +297,8 @@ function editPeriodMod(id,name,start,end){
       <div style="flex:1"><label>Start</label><input type="date" id="m-s" value="${start}"></div>
       <div style="flex:1"><label>End</label><input type="date" id="m-e" value="${end}"></div>
     </div>
-    <div class="ma">
-      <button class="btn" onclick="closeMod()">Cancel</button>
-      <button class="btn btnp" onclick="savePeriod('${id}')">Save</button>
-    </div>`);
+    <div class="ma"><button class="btn" onclick="closeMod()">Cancel</button>
+    <button class="btn btnp" onclick="savePeriod('${id}')">Save</button></div>`);
 }
 async function savePeriod(id){
   const name=document.getElementById('m-n').value.trim();
@@ -316,7 +327,6 @@ async function renderEmp(){
     ${empTab==='list'?renderEmpList(emps,period):renderEmpSummary(emps,period)}`;
 }
 function setEmpTab(t){empTab=t;renderEmp();}
-
 function renderEmpList(emps,period){
   if(!emps||!emps.length)return'<div class="empty">No employees yet. Add one above.</div>';
   return emps.map(e=>{
@@ -340,8 +350,7 @@ function renderEmpList(emps,period){
         <div style="font-size:12px;color:#888;margin-bottom:5px">Schedules:</div>
         <table><thead><tr><th>Days</th><th>Shift</th><th>From</th><th>To</th><th>Hrs/wk</th><th></th></tr></thead><tbody>
         ${schs.map(s=>`<tr>
-          <td>${s.days.join(', ')}</td>
-          <td>${s.shift_start} – ${s.shift_end}</td>
+          <td>${s.days.join(', ')}</td><td>${s.shift_start} &ndash; ${s.shift_end}</td>
           <td>${fmtD(s.from_date)}</td><td>${fmtD(s.to_date)}</td>
           <td>${calcWeekHours(s).toFixed(1)}h</td>
           <td><button class="btn btns btnd" onclick="deleteSched('${s.id}')">Remove</button></td>
@@ -351,7 +360,6 @@ function renderEmpList(emps,period){
     </div>`;
   }).join('');
 }
-
 function renderEmpSummary(emps,period){
   if(!emps||!emps.length)return'<div class="empty">No employees yet.</div>';
   let totalAll=0;
@@ -374,10 +382,8 @@ function renderEmpSummary(emps,period){
   </div>
   <div class="card"><table>
     <thead><tr><th>Employee</th><th>Type</th><th>Schedules</th><th>Total hrs</th><th>Avg/month</th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table></div>`;
+    <tbody>${rows}</tbody></table></div>`;
 }
-
 function calcWeekHours(s){
   const a=s.shift_start.split(':'),b=s.shift_end.split(':');
   return(+b[0]*60+ +b[1]- +a[0]*60- +a[1])/60*(s.days||[]).length;
@@ -395,11 +401,10 @@ function calcTotalHours(emp,period){
   });
   return tot;
 }
-
 function addEmpMod(){
   showMod(`<h3>Add employee</h3>
     <div class="fg"><label>Full name</label><input id="m-n" placeholder="First Last"></div>
-    <div class="fg"><label>Type</label><select id="m-t"><option value="A">A – APN</option><option value="C">C – Counseling</option></select></div>
+    <div class="fg"><label>Type</label><select id="m-t"><option value="A">A &ndash; APN</option><option value="C">C &ndash; Counseling</option></select></div>
     <div class="ma"><button class="btn" onclick="closeMod()">Cancel</button>
     <button class="btn btnp" onclick="addEmp()">Add</button></div>`);
 }
@@ -414,8 +419,8 @@ function editEmpMod(id,name,type){
   showMod(`<h3>Edit employee</h3>
     <div class="fg"><label>Full name</label><input id="m-n" value="${name}"></div>
     <div class="fg"><label>Type</label><select id="m-t">
-      <option value="A" ${type==='A'?'selected':''}>A – APN</option>
-      <option value="C" ${type==='C'?'selected':''}>C – Counseling</option>
+      <option value="A" ${type==='A'?'selected':''}>A &ndash; APN</option>
+      <option value="C" ${type==='C'?'selected':''}>C &ndash; Counseling</option>
     </select></div>
     <div class="ma"><button class="btn" onclick="closeMod()">Cancel</button>
     <button class="btn btnp" onclick="saveEmp('${id}')">Save</button></div>`);
@@ -431,7 +436,6 @@ async function deleteEmp(id){
   await db.from('employees').delete().eq('id',id);
   toast('Employee deleted');renderEmp();
 }
-
 function addScheduleMod(eid,pstart,pend){
   const dh=DAYF.map((d,i)=>`<label><input type="checkbox" value="${DAYS[i]}" id="ck-${DAYS[i]}"> ${d}</label>`).join('');
   showMod(`<h3>Add shift schedule</h3>
@@ -463,51 +467,66 @@ async function deleteSched(id){
 
 // ── CALENDAR ──────────────────────────────────────────────
 async function renderCal(){
-  const al=document.getElementById('cal-alert'),ct=document.getElementById('cal-content');
-  al.style.display='none';
+  const ct=document.getElementById('cal-content');
+  const toolbar=document.getElementById('cal-toolbar');
+  ct.innerHTML='<div class="empty"><span class="spinner"></span> Loading...</div>';
 
-  // Always show period picker
   const {data:allPeriods}=await db.from('periods').select('*').order('start_date');
   if(!allPeriods||!allPeriods.length){
+    toolbar.style.display='none';
     ct.innerHTML='<div class="empty">No periods available yet.</div>';return;
   }
+  if(!currentPeriod)currentPeriod=allPeriods[0].id;
 
-  // Auto-select first period if none selected
-  if(!currentPeriod && allPeriods.length) currentPeriod=allPeriods[0].id;
-
-  const pickerHtml=`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-    <label style="font-size:12px;color:#888;margin:0;white-space:nowrap">Select period:</label>
-    <select id="cal-period-picker" onchange="calPickPeriod(this.value)" style="max-width:260px">
-      ${allPeriods.map(p=>`<option value="${p.id}" ${currentPeriod===p.id?'selected':''}>${p.name} (${fmtD(p.start_date)} – ${fmtD(p.end_date)})</option>`).join('')}
-    </select>
-  </div>`;
-
-  ct.innerHTML=pickerHtml+'<div class="empty"><span class="spinner"></span> Loading calendar...</div>';
+  // Update period picker
+  document.getElementById('cal-period-picker').innerHTML=
+    allPeriods.map(p=>`<option value="${p.id}" ${currentPeriod===p.id?'selected':''}>${p.name} (${fmtD(p.start_date)} &ndash; ${fmtD(p.end_date)})</option>`).join('');
+  toolbar.style.display='flex';
 
   const {data:period}=await db.from('periods').select('*').eq('id',currentPeriod).single();
   const {data:emps}=await db.from('employees').select('*, schedules(*)').eq('period_id',currentPeriod).order('name');
-  if(!emps||!emps.length){
-    ct.innerHTML=pickerHtml+'<div class="empty">No employees in this period.</div>';return;
+  calCache={period,emps};
+
+  // Update employee picker for "by person" tab
+  const pp=document.getElementById('cal-person-picker');
+  if(emps&&emps.length){
+    pp.innerHTML=emps.map(e=>`<option value="${e.id}" ${calPersonId===e.id?'selected':''}>${e.name}</option>`).join('');
+    if(!calPersonId||!emps.find(e=>e.id===calPersonId))calPersonId=emps[0].id;
+    pp.value=calPersonId;
   }
 
+  if(!emps||!emps.length){ct.innerHTML='<div class="empty">No employees in this period.</div>';return;}
+
+  if(calTab==='grid') renderCalGrid(period,emps,ct);
+  else renderCalPerson(period,emps,ct);
+}
+
+function calPickPeriod(id){currentPeriod=id;calPersonId=null;renderCal();}
+function calSetPerson(id){calPersonId=id;renderCalPerson(calCache.period,calCache.emps,document.getElementById('cal-content'));}
+function calSetTab(t){
+  calTab=t;
+  document.getElementById('cal-tab-grid').classList.toggle('active',t==='grid');
+  document.getElementById('cal-tab-person').classList.toggle('active',t==='person');
+  document.getElementById('cal-person-picker-wrap').style.display=t==='person'?'flex':'none';
+  if(!calCache.period||!calCache.emps)return;
+  const ct=document.getElementById('cal-content');
+  if(t==='grid')renderCalGrid(calCache.period,calCache.emps,ct);
+  else renderCalPerson(calCache.period,calCache.emps,ct);
+}
+
+function renderCalGrid(period,emps,ct){
   const slots=[];
   for(let h=8;h<=19;h++){slots.push(pad(h)+':00');if(h<19)slots.push(pad(h)+':30');}
-
-  let html=pickerHtml;
-  html+=`<div style="font-size:13px;margin-bottom:6px;color:#888">Period: <strong>${period.name}</strong> | ${fmtD(period.start_date)} – ${fmtD(period.end_date)}</div>`;
+  let html=`<div style="font-size:13px;margin-bottom:6px;color:#888">Period: <strong>${period.name}</strong> | ${fmtD(period.start_date)} &ndash; ${fmtD(period.end_date)}</div>`;
   html+=`<div style="display:flex;gap:14px;margin-bottom:10px;font-size:12px">
     <span><span style="display:inline-block;width:10px;height:10px;background:#B5D4F4;border-radius:2px;margin-right:3px"></span>APN</span>
     <span><span style="display:inline-block;width:10px;height:10px;background:#9FE1CB;border-radius:2px;margin-right:3px"></span>Counseling</span>
   </div>`;
-
-  html+=`<table class="calt"><thead><tr>
-    <th class="datecol th-corner">Date</th>`;
+  html+=`<table class="calt"><thead><tr><th class="datecol th-corner">Date</th>`;
   slots.forEach(t=>html+=`<th>${t}</th>`);
   emps.forEach(e=>html+=`<th style="min-width:44px;font-size:10px">${e.name.split(' ').map(x=>x[0]).join('')}<br>hrs</th>`);
   html+=`</tr></thead><tbody>`;
-
-  const d=new Date(period.start_date+'T00:00:00');
-  const end=new Date(period.end_date+'T00:00:00');
+  const d=new Date(period.start_date+'T00:00:00'),end=new Date(period.end_date+'T00:00:00');
   while(d<=end){
     const ds=d.toISOString().slice(0,10);
     const dow=d.getDay(),di=dow===0?6:dow-1,dn=DAYS[di],wk=dow===0||dow===6;
@@ -532,16 +551,138 @@ async function renderCal(){
         const a=ed.sched.shift_start.split(':'),b=ed.sched.shift_end.split(':');
         const hrs=(+b[0]*60+ +b[1]- +a[0]*60- +a[1])/60;
         html+=`<td style="text-align:center;font-size:11px;font-weight:500;color:${ed.emp.type==='A'?'#0C447C':'#085041'}">${hrs.toFixed(1)}h</td>`;
-      } else html+=`<td></td>`;
+      }else html+=`<td></td>`;
     });
-    html+=`</tr>`;
-    d.setDate(d.getDate()+1);
+    html+=`</tr>`;d.setDate(d.getDate()+1);
   }
   html+=`</tbody></table>`;
   ct.innerHTML=html;
 }
 
-function calPickPeriod(id){currentPeriod=id;renderCal();}
+function renderCalPerson(period,emps,ct){
+  document.getElementById('cal-person-picker-wrap').style.display='flex';
+  const emp=emps.find(e=>e.id===calPersonId)||(emps.length?emps[0]:null);
+  if(!emp){ct.innerHTML='<div class="empty">No employees.</div>';return;}
+  calPersonId=emp.id;
+  document.getElementById('cal-person-picker').value=emp.id;
+
+  // Build list of every working day for this employee within the period
+  const rows=[];
+  const d=new Date(period.start_date+'T00:00:00'),end=new Date(period.end_date+'T00:00:00');
+  while(d<=end){
+    const ds=d.toISOString().slice(0,10);
+    const dow=d.getDay(),di=dow===0?6:dow-1,dn=DAYS[di];
+    (emp.schedules||[]).forEach(s=>{
+      if((s.days||[]).includes(dn)&&ds>=s.from_date&&ds<=s.to_date){
+        const a=s.shift_start.split(':'),b=s.shift_end.split(':');
+        const hrs=(+b[0]*60+ +b[1]- +a[0]*60- +a[1])/60;
+        rows.push({date:ds,day:dn,start:s.shift_start,end:s.shift_end,hrs});
+      }
+    });
+    d.setDate(d.getDate()+1);
+  }
+
+  const totalHrs=rows.reduce((a,r)=>a+r.hrs,0);
+  const ini=emp.name.split(' ').map(x=>x[0]).join('');
+  const bg=emp.type==='A'?'#B5D4F4':'#9FE1CB',col=emp.type==='A'?'#0C447C':'#085041';
+
+  let html=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+    <div style="width:38px;height:38px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px;color:${col}">${ini}</div>
+    <div>
+      <div style="font-weight:600;font-size:15px">${emp.name}</div>
+      <div style="font-size:12px;color:#888"><span class="${emp.type==='A'?'ba':'bc'}">${emp.type==='A'?'APN':'Counseling'}</span> &nbsp;|&nbsp; ${period.name} &nbsp;|&nbsp; <strong>${rows.length}</strong> working days &nbsp;|&nbsp; <strong>${totalHrs.toFixed(1)}h</strong> total</div>
+    </div>
+  </div>`;
+
+  if(!rows.length){
+    html+='<div class="empty">No working days scheduled for this employee in this period.</div>';
+  } else {
+    html+=`<div class="card" style="padding:0;overflow:hidden">
+      <table class="person-table">
+        <thead><tr><th style="padding:8px 12px">Date</th><th>Day</th><th>Shift start</th><th>Shift end</th><th>Hours</th></tr></thead>
+        <tbody>
+        ${rows.map((r,i)=>`<tr style="${i%2===0?'':'background:#fafafa'}">
+          <td style="padding:7px 12px;font-weight:500">${fmtFull(r.date)}</td>
+          <td>${r.day}</td>
+          <td>${r.start}</td>
+          <td>${r.end}</td>
+          <td style="font-weight:500">${r.hrs.toFixed(1)}h</td>
+        </tr>`).join('')}
+        </tbody>
+        <tfoot>
+          <tr style="background:#f7f7f5;font-weight:600">
+            <td colspan="4" style="padding:8px 12px;text-align:right;color:#888">Total hours:</td>
+            <td style="padding:8px 12px">${totalHrs.toFixed(1)}h</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>`;
+  }
+  ct.innerHTML=html;
+}
+
+// ── CSV DOWNLOAD ──────────────────────────────────────────
+function downloadCSV(){
+  const {period,emps}=calCache;
+  if(!period||!emps){toast('Load the calendar first',true);return;}
+  let csv,filename;
+
+  if(calTab==='grid'){
+    // Full calendar grid: one row per day, columns per employee
+    const header=['Date','Day',...emps.map(e=>e.name+' shift'),...emps.map(e=>e.name+' hrs')];
+    const lines=[header.join(',')];
+    const d=new Date(period.start_date+'T00:00:00'),end=new Date(period.end_date+'T00:00:00');
+    while(d<=end){
+      const ds=d.toISOString().slice(0,10);
+      const dow=d.getDay(),di=dow===0?6:dow-1,dn=DAYS[di];
+      const shifts=emps.map(e=>{
+        let found=null;
+        (e.schedules||[]).forEach(s=>{if((s.days||[]).includes(dn)&&ds>=s.from_date&&ds<=s.to_date)found=s;});
+        return found?`${found.shift_start}-${found.shift_end}`:'';
+      });
+      const hrs=emps.map(e=>{
+        let found=null;
+        (e.schedules||[]).forEach(s=>{if((s.days||[]).includes(dn)&&ds>=s.from_date&&ds<=s.to_date)found=s;});
+        if(!found)return'';
+        const a=found.shift_start.split(':'),b=found.shift_end.split(':');
+        return((+b[0]*60+ +b[1]- +a[0]*60- +a[1])/60).toFixed(1);
+      });
+      lines.push([ds,dn,...shifts,...hrs].join(','));
+      d.setDate(d.getDate()+1);
+    }
+    csv=lines.join('\n');
+    filename=`schedule_${period.name.replace(/\s+/g,'_')}_full.csv`;
+
+  } else {
+    // By employee: one row per working day for selected employee
+    const emp=emps.find(e=>e.id===calPersonId);
+    if(!emp){toast('Select an employee first',true);return;}
+    const header=['Date','Day','Shift start','Shift end','Hours'];
+    const lines=[header.join(',')];
+    const d=new Date(period.start_date+'T00:00:00'),end=new Date(period.end_date+'T00:00:00');
+    while(d<=end){
+      const ds=d.toISOString().slice(0,10);
+      const dow=d.getDay(),di=dow===0?6:dow-1,dn=DAYS[di];
+      (emp.schedules||[]).forEach(s=>{
+        if((s.days||[]).includes(dn)&&ds>=s.from_date&&ds<=s.to_date){
+          const a=s.shift_start.split(':'),b=s.shift_end.split(':');
+          const hrs=((+b[0]*60+ +b[1]- +a[0]*60- +a[1])/60).toFixed(1);
+          lines.push([ds,dn,s.shift_start,s.shift_end,hrs].join(','));
+        }
+      });
+      d.setDate(d.getDate()+1);
+    }
+    csv=lines.join('\n');
+    filename=`schedule_${emp.name.replace(/\s+/g,'_')}_${period.name.replace(/\s+/g,'_')}.csv`;
+  }
+
+  const blob=new Blob([csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=filename;a.click();
+  URL.revokeObjectURL(url);
+  toast('CSV downloaded');
+}
 
 // ── USERS ─────────────────────────────────────────────────
 async function renderUsers(){
@@ -549,7 +690,7 @@ async function renderUsers(){
   const rows=(data||[]).map(u=>`<tr>
     <td>${u.name}</td>
     <td><code style="font-size:12px">${u.username}</code></td>
-    <td><code style="font-size:12px;color:#aaa">••••••••</code></td>
+    <td><code style="font-size:12px;color:#aaa">&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;</code></td>
     <td><span style="padding:2px 8px;border-radius:20px;font-size:11px;background:${u.role==='admin'?'#FAC775':'#e0e0e0'};color:${u.role==='admin'?'#633806':'#555'}">${u.role==='admin'?'Manager':'Viewer'}</span></td>
     <td><div style="display:flex;gap:5px">
       <button class="btn btns" onclick="editUserMod('${u.id}','${u.name}','${u.username}','${u.role}')">Edit</button>
