@@ -464,17 +464,37 @@ async function deleteSched(id){
 // ── CALENDAR ──────────────────────────────────────────────
 async function renderCal(){
   const al=document.getElementById('cal-alert'),ct=document.getElementById('cal-content');
-  if(!currentPeriod){al.style.display='block';al.textContent='Select a period first from the Periods page.';ct.innerHTML='';return;}
   al.style.display='none';
-  ct.innerHTML='<div class="empty"><span class="spinner"></span> Loading calendar...</div>';
+
+  // Always show period picker
+  const {data:allPeriods}=await db.from('periods').select('*').order('start_date');
+  if(!allPeriods||!allPeriods.length){
+    ct.innerHTML='<div class="empty">No periods available yet.</div>';return;
+  }
+
+  // Auto-select first period if none selected
+  if(!currentPeriod && allPeriods.length) currentPeriod=allPeriods[0].id;
+
+  const pickerHtml=`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <label style="font-size:12px;color:#888;margin:0;white-space:nowrap">Select period:</label>
+    <select id="cal-period-picker" onchange="calPickPeriod(this.value)" style="max-width:260px">
+      ${allPeriods.map(p=>`<option value="${p.id}" ${currentPeriod===p.id?'selected':''}>${p.name} (${fmtD(p.start_date)} – ${fmtD(p.end_date)})</option>`).join('')}
+    </select>
+  </div>`;
+
+  ct.innerHTML=pickerHtml+'<div class="empty"><span class="spinner"></span> Loading calendar...</div>';
+
   const {data:period}=await db.from('periods').select('*').eq('id',currentPeriod).single();
   const {data:emps}=await db.from('employees').select('*, schedules(*)').eq('period_id',currentPeriod).order('name');
-  if(!emps||!emps.length){ct.innerHTML='<div class="empty">No employees in this period.</div>';return;}
+  if(!emps||!emps.length){
+    ct.innerHTML=pickerHtml+'<div class="empty">No employees in this period.</div>';return;
+  }
 
   const slots=[];
   for(let h=8;h<=19;h++){slots.push(pad(h)+':00');if(h<19)slots.push(pad(h)+':30');}
 
-  let html=`<div style="font-size:13px;margin-bottom:6px;color:#888">Period: <strong>${period.name}</strong> | ${fmtD(period.start_date)} – ${fmtD(period.end_date)}</div>`;
+  let html=pickerHtml;
+  html+=`<div style="font-size:13px;margin-bottom:6px;color:#888">Period: <strong>${period.name}</strong> | ${fmtD(period.start_date)} – ${fmtD(period.end_date)}</div>`;
   html+=`<div style="display:flex;gap:14px;margin-bottom:10px;font-size:12px">
     <span><span style="display:inline-block;width:10px;height:10px;background:#B5D4F4;border-radius:2px;margin-right:3px"></span>APN</span>
     <span><span style="display:inline-block;width:10px;height:10px;background:#9FE1CB;border-radius:2px;margin-right:3px"></span>Counseling</span>
@@ -520,6 +540,8 @@ async function renderCal(){
   html+=`</tbody></table>`;
   ct.innerHTML=html;
 }
+
+function calPickPeriod(id){currentPeriod=id;renderCal();}
 
 // ── USERS ─────────────────────────────────────────────────
 async function renderUsers(){
