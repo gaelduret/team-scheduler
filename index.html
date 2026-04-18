@@ -366,7 +366,10 @@ function renderEmpList(emps,period){
           <td>${s.break_minutes!=null?s.break_minutes:30} min</td>
           <td>${fmtD(s.from_date)}</td><td>${fmtD(s.to_date)}</td>
           <td>${(netHrs(s)*s.days.length).toFixed(1)}h</td>
-          <td><button class="btn btns btnd" onclick="deleteSched('${s.id}')">Remove</button></td>
+          <td style="display:flex;gap:4px">
+            <button class="btn btns" onclick="editSchedMod('${s.id}','${e.id}','${period.start_date}','${period.end_date}')">Edit</button>
+            <button class="btn btns btnd" onclick="deleteSched('${s.id}')">Remove</button>
+          </td>
         </tr>`).join('')}
         </tbody></table>`
       :'<div style="font-size:12px;color:#ccc">No schedules defined.</div>'}
@@ -477,6 +480,36 @@ async function addSched(eid){
 async function deleteSched(id){
   await db.from('schedules').delete().eq('id',id);
   toast('Shift removed');renderEmp();
+}
+async function editSchedMod(sid,eid,pstart,pend){
+  // Load the schedule record from Supabase so we have current values
+  const {data:s}=await db.from('schedules').select('*').eq('id',sid).single();
+  if(!s){toast('Could not load schedule',true);return;}
+  const dh=DAYF.map((d,i)=>`<label><input type="checkbox" value="${DAYS[i]}" id="ck-${DAYS[i]}" ${(s.days||[]).includes(DAYS[i])?'checked':''}> ${d}</label>`).join('');
+  const brk=s.break_minutes!=null?s.break_minutes:30;
+  showMod(`<h3>Edit shift schedule</h3>
+    <div class="fg"><label>Working days</label><div class="dc">${dh}</div></div>
+    <div class="row">
+      <div style="flex:1"><label>Shift start</label><input type="time" id="m-ss" value="${s.shift_start}"></div>
+      <div style="flex:1"><label>Shift end</label><input type="time" id="m-se" value="${s.shift_end}"></div>
+      <div style="flex:1"><label>Break (minutes)</label><input type="number" id="m-brk" value="${brk}" min="0" max="120"></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div style="flex:1"><label>From</label><input type="date" id="m-sf" value="${s.from_date}"></div>
+      <div style="flex:1"><label>To</label><input type="date" id="m-st" value="${s.to_date}"></div>
+    </div>
+    <div class="ma"><button class="btn" onclick="closeMod()">Cancel</button>
+    <button class="btn btnp" onclick="saveSched('${sid}')">Save</button></div>`);
+}
+async function saveSched(sid){
+  const days=DAYS.filter(d=>{const el=document.getElementById('ck-'+d);return el&&el.checked;});
+  const ss=document.getElementById('m-ss').value,se=document.getElementById('m-se').value;
+  const sf=document.getElementById('m-sf').value,st=document.getElementById('m-st').value;
+  const brk=parseInt(document.getElementById('m-brk').value)||30;
+  if(!days.length){alert('Select at least one day');return;}
+  if(!ss||!se||!sf||!st){alert('Fill all fields');return;}
+  await db.from('schedules').update({days,shift_start:ss,shift_end:se,break_minutes:brk,from_date:sf,to_date:st}).eq('id',sid);
+  closeMod();toast('Shift updated');renderEmp();
 }
 
 // ── EXCEL TEMPLATE DOWNLOAD ───────────────────────────────
