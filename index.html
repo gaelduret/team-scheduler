@@ -344,7 +344,7 @@ function renderEmpList(emps,period){
   return emps.map(e=>{
     const ini=e.name.split(' ').map(x=>x[0]).join('');
     const bg=e.type==='A'?'#B5D4F4':'#9FE1CB',col=e.type==='A'?'#0C447C':'#085041';
-    const schs=e.schedules||[];
+    const schs=(e.schedules||[]).slice().sort((a,b)=>a.from_date.localeCompare(b.from_date));
     return `<div class="card" style="margin-bottom:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
         <div style="display:flex;align-items:center;gap:9px">
