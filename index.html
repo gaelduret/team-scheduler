@@ -517,32 +517,30 @@ function downloadTemplate(){
   const wb=XLSX.utils.book_new();
   const data=[
     ['name','type','days','shift_start','shift_end','break_minutes','from_date','to_date'],
-    ['Alice Martin','A','Mon,Tue,Wed,Thu,Fri','08:30','17:00',30,'2025-01-01','2025-06-30'],
-    ['Bob Chen','C','Tue,Thu','09:00','17:30',30,'2025-01-01','2025-06-30'],
+    ['Alice Martin','A','Mon,Tue,Wed,Thu,Fri','8:30 AM','5:00 PM',30,'01/01/2025','06/30/2025'],
+    ['Bob Chen','C','Tue,Thu','9:00 AM','5:30 PM',30,'01/01/2025','06/30/2025'],
   ];
   const ws=XLSX.utils.aoa_to_sheet(data);
-  // Column widths
-  ws['!cols']=[{wch:20},{wch:6},{wch:30},{wch:12},{wch:12},{wch:16},{wch:12},{wch:12}];
+  ws['!cols']=[{wch:20},{wch:6},{wch:30},{wch:12},{wch:12},{wch:16},{wch:14},{wch:14}];
   XLSX.utils.book_append_sheet(wb,ws,'Employees');
-
-  // Instructions sheet
   const inst=[
-    ['Column','Description','Valid values'],
-    ['name','Employee full name','Any text'],
-    ['type','Employee type','A (APN) or C (Counseling)'],
-    ['days','Working days, comma-separated','Mon Tue Wed Thu Fri Sat Sun'],
-    ['shift_start','Shift start time','HH:MM (e.g. 08:30)'],
-    ['shift_end','Shift end time','HH:MM (e.g. 17:00)'],
-    ['break_minutes','Break duration in minutes','Number (default 30)'],
-    ['from_date','Schedule start date','YYYY-MM-DD'],
-    ['to_date','Schedule end date','YYYY-MM-DD'],
+    ['Column','Description','Format / Valid values'],
+    ['name','Employee full name','Any text  e.g.  Alice Martin'],
+    ['type','Employee type','A  (APN)  or  C  (Counseling)'],
+    ['days','Working days comma-separated','Mon  Tue  Wed  Thu  Fri  Sat  Sun'],
+    ['shift_start','Shift start time','H:MM AM/PM  e.g.  8:30 AM'],
+    ['shift_end','Shift end time','H:MM AM/PM  e.g.  5:00 PM'],
+    ['break_minutes','Break duration in minutes','Number  (default 30)'],
+    ['from_date','Schedule start date','MM/DD/YYYY  e.g.  01/15/2025'],
+    ['to_date','Schedule end date','MM/DD/YYYY  e.g.  06/30/2025'],
     ['','',''],
     ['Notes','',''],
     ['- One row per schedule (an employee can have multiple rows for different date ranges)','',''],
     ['- Dates must be within the selected period','',''],
+    ['- Time must include AM or PM  (e.g. 8:30 AM, 12:00 PM, 5:00 PM)','',''],
   ];
   const ws2=XLSX.utils.aoa_to_sheet(inst);
-  ws2['!cols']=[{wch:28},{wch:35},{wch:35}];
+  ws2['!cols']=[{wch:32},{wch:38},{wch:38}];
   XLSX.utils.book_append_sheet(wb,ws2,'Instructions');
   XLSX.writeFile(wb,'team_scheduler_template.xlsx');
   toast('Template downloaded');
@@ -593,6 +591,30 @@ function handleImportFile(input){
   reader.readAsArrayBuffer(file);
 }
 
+// Convert MM/DD/YYYY -> YYYY-MM-DD
+function parseImportDate(val){
+  const s=String(val).trim();
+  // Already ISO
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
+  // MM/DD/YYYY
+  const m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(m)return m[3]+'-'+m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0');
+  return s;
+}
+// Convert H:MM AM/PM -> HH:MM (24h)
+function parseImportTime(val){
+  const s=String(val).trim();
+  // Already 24h
+  if(/^\d{2}:\d{2}$/.test(s))return s;
+  const m=s.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if(m){
+    let h=parseInt(m[1]);const min=m[2];const ampm=m[3].toUpperCase();
+    if(ampm==='AM'&&h===12)h=0;
+    if(ampm==='PM'&&h!==12)h+=12;
+    return String(h).padStart(2,'0')+':'+min;
+  }
+  return s;
+}
 async function doImport(){
   if(!importRows.length)return;
   document.getElementById('imp-btn').disabled=true;
@@ -621,11 +643,11 @@ async function doImport(){
     const brk=parseInt(r.break_minutes)||30;
     const {error:se}=await db.from('schedules').insert({
       id:uid(),employee_id:empId,days,
-      shift_start:String(r.shift_start).trim(),
-      shift_end:String(r.shift_end).trim(),
+      shift_start:parseImportTime(r.shift_start),
+      shift_end:parseImportTime(r.shift_end),
       break_minutes:brk,
-      from_date:String(r.from_date).trim(),
-      to_date:String(r.to_date).trim()
+      from_date:parseImportDate(r.from_date),
+      to_date:parseImportDate(r.to_date)
     });
     if(se)errors++;
     else scheds++;
