@@ -534,11 +534,18 @@ function renderEmpList(emps,period){
     const ini=e.name.split(' ').map(x=>x[0]).join('');
     const bg=e.type==='A'?'#B5D4F4':'#9FE1CB',col=e.type==='A'?'#0C447C':'#085041';
     const schs=(e.schedules||[]).slice().sort((a,b)=>a.from_date.localeCompare(b.from_date));
+    const totalH=calcTotalHours(e,period);
     return `<div class="card" style="margin-bottom:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
         <div style="display:flex;align-items:center;gap:9px">
           <div style="width:32px;height:32px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;font-weight:500;font-size:12px;color:${col}">${ini}</div>
-          <div><div style="font-weight:500">${e.name}</div><span class="${e.type==='A'?'ba':'bc'}">${e.type==='A'?'APN':'Counseling'}</span></div>
+          <div>
+            <div style="display:flex;align-items:baseline;gap:8px">
+              <span style="font-weight:500">${e.name}</span>
+              <span style="font-size:12px;font-weight:600;color:${col}">${totalH.toFixed(1)}h</span>
+            </div>
+            <span class="${e.type==='A'?'ba':'bc'}">${e.type==='A'?'APN':'Counseling'}</span>
+          </div>
         </div>
         <div style="display:flex;gap:5px">
           <button class="btn btns" onclick="addScheduleMod('${e.id}','${period.start_date}','${period.end_date}')">+ Shift</button>
