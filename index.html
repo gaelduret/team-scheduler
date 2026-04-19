@@ -164,7 +164,7 @@ td{padding:7px 9px;border-bottom:1px solid #f0f0f0}
       <div class="ptitle">Settings</div>
       <div class="tabs">
         <button class="tab active" id="stab-access" onclick="renderSettings('access')">Access</button>
-        <button class="tab" id="stab-vacations" onclick="renderSettings('vacations')">Vacations</button>
+        <button class="tab" id="stab-vacations" onclick="renderSettings('vacations')">Holidays</button>
       </div>
       <div id="settings-content"></div>
     </div>
@@ -536,7 +536,13 @@ function renderEmpList(emps,period){
   return emps.map(e=>{
     const ini=e.name.split(' ').map(x=>x[0]).join('');
     const bg=e.type==='A'?'#B5D4F4':'#9FE1CB',col=e.type==='A'?'#0C447C':'#085041';
-    const schs=(e.schedules||[]).slice().sort((a,b)=>a.from_date.localeCompare(b.from_date));
+    const schs=(e.schedules||[]).slice().sort((a,b)=>{
+      const dateDiff=a.from_date.localeCompare(b.from_date);
+      if(dateDiff!==0)return dateDiff;
+      // Sub-sort by first day in the days array using DAYS order (Mon=0 .. Sun=6)
+      const firstDay=s=>DAYS.indexOf((s.days||[])[0]??'Mon');
+      return firstDay(a)-firstDay(b);
+    });
     const totalH=calcTotalHours(e,period);
     return `<div class="card" style="margin-bottom:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
@@ -1065,7 +1071,7 @@ function renderCalGrid(period,emps,ct,vacSet,vacMap){
     const rowH=workingEds.length>0
       ? ROW_PAD*2 + workingEds.length*(BAR_H+BAR_GAP) - BAR_GAP
       : 28;
-    const rowBg=wk?'#f9f9f7':'#fff';
+    const rowBg=wk?'#ededeb':'#f0f4f8';
     const rowBorder='border-bottom:1px solid #eeeeee;';
 
     html+=`<div style="display:flex;${rowBorder}background:${rowBg};min-height:${rowH}px">`;
@@ -1082,7 +1088,7 @@ function renderCalGrid(period,emps,ct,vacSet,vacMap){
     // Hour grid lines (subtle)
     ticks.forEach(h=>{
       const pct=((h*60-T_START)/T_SPAN*100).toFixed(3);
-      html+=`<div style="position:absolute;left:${pct}%;top:0;bottom:0;border-left:1px solid #eeeeee;pointer-events:none"></div>`;
+      html+=`<div style="position:absolute;left:${pct}%;top:0;bottom:0;border-left:1px solid #d8dfe8;pointer-events:none"></div>`;
     });
 
     // Shift bars — one per working employee, stacked vertically
@@ -1260,7 +1266,7 @@ async function renderVacations(){
   const {data:vacs,error}=await db.from('vacations').select('*').order('date').then(r=>r).catch(()=>({data:[],error:null}));
   ct.innerHTML=`
     <div class="card">
-      <div style="font-size:13px;font-weight:500;margin-bottom:9px;color:#888">Add vacation / holiday</div>
+      <div style="font-size:13px;font-weight:500;margin-bottom:9px;color:#888">Add holiday</div>
       <div class="row">
         <div style="flex:1"><label>Date</label><input type="date" id="v-date"></div>
         <div style="flex:3"><label>Label (e.g. Independence Day)</label><input id="v-label" placeholder="Holiday name"></div>
@@ -1269,11 +1275,11 @@ async function renderVacations(){
     </div>
     <div class="card">
       <div style="font-size:13px;font-weight:500;margin-bottom:10px;color:#888">
-        Vacation &amp; holiday days
+        Holiday days
         <span style="font-weight:400;margin-left:8px;font-size:12px">(applied across all periods)</span>
       </div>
       ${!vacs||!vacs.length
-        ?'<div class="empty">No vacation days defined yet.</div>'
+        ?'<div class="empty">No holidays defined yet.</div>'
         :`<table>
           <thead><tr><th>Date</th><th>Day</th><th>Label</th><th></th></tr></thead>
           <tbody>${vacs.map(v=>{
@@ -1295,17 +1301,17 @@ async function addVacation(){
   const label=document.getElementById('v-label').value.trim();
   if(!date){alert('Please select a date');return;}
   const {error}=await db.from('vacations').insert({id:uid(),date,label});
-  if(error){toast(error.message.includes('unique')?'This date is already added':'Error adding vacation',true);return;}
+  if(error){toast(error.message.includes('unique')?'This date is already defined':'Error adding holiday',true);return;}
   document.getElementById('v-date').value='';
   document.getElementById('v-label').value='';
-  toast('Vacation day added');
+  toast('Holiday added');
   await loadGlobalVacations();
   renderVacations();
   refreshAfterVacationChange();
 }
 async function deleteVacation(id){
   await db.from('vacations').delete().eq('id',id);
-  toast('Vacation day removed');
+  toast('Holiday removed');
   await loadGlobalVacations();
   renderVacations();
   refreshAfterVacationChange();
