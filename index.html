@@ -755,15 +755,15 @@ function renderCalGrid(period,emps,ct){
   const DATE_W=76;  // px for the date column
 
   // Color by type: APN = blue, Counseling = green
-  const empColors=emps.map(e=>e.type==='A'?'#185FA5':'#0f6e56');
+  const empColors=emps.map(e=>e.type==='A'?'#7aafd4':'#6dbfa0');
 
   // Build HTML
   let html=`<div style="font-size:13px;margin-bottom:6px;color:#888">Period: <strong>${period.name}</strong> | ${fmtD(period.start_date)} &ndash; ${fmtD(period.end_date)}</div>`;
 
   // Legend
   html+=`<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px;font-size:12px;align-items:center">`;
-  html+=`<span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:18px;height:12px;border-radius:3px;background:#185FA5"></span>APN</span>`;
-  html+=`<span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:18px;height:12px;border-radius:3px;background:#0f6e56"></span>Counseling</span>`;
+  html+=`<span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:18px;height:12px;border-radius:3px;background:#7aafd4"></span>APN</span>`;
+  html+=`<span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:18px;height:12px;border-radius:3px;background:#6dbfa0"></span>Counseling</span>`;
   html+=`<span style="color:#bbb">|</span>`;
   emps.forEach((e,i)=>{
     html+=`<span style="font-size:11px;color:#555">${e.name} <span style="padding:1px 5px;border-radius:10px;font-size:10px;background:${e.type==='A'?'#daeaf7':'#c8f0e2'};color:${e.type==='A'?'#0C447C':'#085041'}">${e.type}</span></span>`;
@@ -842,7 +842,7 @@ function renderCalGrid(period,emps,ct){
       // Short label: first name + hours
       const firstName=name.split(' ')[0];
       html+=`<div style="position:absolute;left:${leftPct}%;width:${widthPct}%;top:${top}px;height:${BAR_H}px;background:${color};border-radius:4px;display:flex;align-items:center;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.18);border-left:3px solid rgba(0,0,0,.18)">
-        <span style="font-size:10px;font-weight:700;color:#fff;white-space:nowrap;padding:0 6px;letter-spacing:.01em">${firstName}</span>
+        <span style="font-size:10px;font-weight:700;color:#1a3a52;white-space:nowrap;padding:0 6px;letter-spacing:.01em">${firstName}</span>
       </div>`;
       barIndex++;
     });
