@@ -103,7 +103,7 @@ td{padding:7px 9px;border-bottom:1px solid #f0f0f0}
       <button class="nb active" onclick="nav('periods')">Periods</button>
       <button class="nb" onclick="nav('employees')">Employees</button>
       <button class="nb" onclick="nav('calendar')">Calendar</button>
-      <button class="nb" onclick="nav('users')">Access</button>
+      <button class="nb" onclick="nav('settings')">Settings</button>
     </span>
     <span id="nav-viewer" style="display:none">
       <button class="nb active">Calendar</button>
@@ -160,19 +160,13 @@ td{padding:7px 9px;border-bottom:1px solid #f0f0f0}
     </div>
 
     <!-- USERS -->
-    <div class="pg" id="pg-users">
-      <div class="ptitle">Access Management</div>
-      <div class="card">
-        <div style="font-size:13px;font-weight:500;margin-bottom:9px;color:#888">Add user</div>
-        <div class="row">
-          <div style="flex:2"><label>Name</label><input id="u-name" placeholder="Full name"></div>
-          <div style="flex:2"><label>Username</label><input id="u-login" placeholder="login"></div>
-          <div style="flex:2"><label>Password</label><input type="password" id="u-pass" placeholder="password"></div>
-          <div style="flex:1"><label>Role</label><select id="u-role"><option value="viewer">Viewer</option><option value="admin">Manager</option></select></div>
-          <button class="btn btnp" onclick="addUser()">Add</button>
-        </div>
+    <div class="pg" id="pg-settings">
+      <div class="ptitle">Settings</div>
+      <div class="tabs">
+        <button class="tab active" id="stab-access" onclick="renderSettings('access')">Access</button>
+        <button class="tab" id="stab-vacations" onclick="renderSettings('vacations')">Vacations</button>
       </div>
-      <div id="users-table"></div>
+      <div id="settings-content"></div>
     </div>
   </div>
 </div>
@@ -243,14 +237,14 @@ function doLogout(){
 // ── NAV ───────────────────────────────────────────────────
 function nav(p){
   document.querySelectorAll('#nav-admin .nb').forEach((b,i)=>{
-    b.classList.toggle('active',['periods','employees','calendar','users'][i]===p);
+    b.classList.toggle('active',['periods','employees','calendar','settings'][i]===p);
   });
   document.querySelectorAll('.pg').forEach(x=>x.classList.remove('active'));
   document.getElementById('pg-'+p).classList.add('active');
   if(p==='periods')renderPeriods();
   if(p==='employees')renderEmp();
   if(p==='calendar')renderCal();
-  if(p==='users')renderUsers();
+  if(p==='settings'){renderSettings('access');}
 }
 function showCal(){
   document.querySelectorAll('.pg').forEach(x=>x.classList.remove('active'));
@@ -605,28 +599,37 @@ function renderEmpSummary(emps,period){
 }
 
 // Count how many times a schedule fires within the period date range
+function parseLocalDate(d){return new Date(d+'T00:00:00');}
 function countShifts(s,period){
-  const f=new Date(Math.max(+new Date(s.from_date),+new Date(period.start_date)));
-  const t=new Date(Math.min(+new Date(s.to_date),+new Date(period.end_date)));
+  const vacSet=calCache&&calCache.vacSet?calCache.vacSet:new Set();
+  const f=new Date(Math.max(+parseLocalDate(s.from_date),+parseLocalDate(period.start_date)));
+  const t=new Date(Math.min(+parseLocalDate(s.to_date),+parseLocalDate(period.end_date)));
   if(f>t)return 0;
   let count=0;
   const x=new Date(f);
   while(x<=t){
+    const ds=x.toISOString().slice(0,10);
     const dn=DAYS[x.getDay()===0?6:x.getDay()-1];
-    if((s.days||[]).includes(dn))count++;
+    if((s.days||[]).includes(dn)&&!vacSet.has(ds))count++;
     x.setDate(x.getDate()+1);
   }
   return count;
 }
 function calcTotalHours(emp,period){
+  const vacSet=calCache&&calCache.vacSet?calCache.vacSet:new Set();
   let tot=0;
   (emp.schedules||[]).forEach(s=>{
-    const f=new Date(Math.max(+new Date(s.from_date),+new Date(period.start_date)));
-    const t=new Date(Math.min(+new Date(s.to_date),+new Date(period.end_date)));
+    const f=new Date(Math.max(+parseLocalDate(s.from_date),+parseLocalDate(period.start_date)));
+    const t=new Date(Math.min(+parseLocalDate(s.to_date),+parseLocalDate(period.end_date)));
     if(f>t)return;
     const nh=netHrs(s);
     const x=new Date(f);
-    while(x<=t){const dn=DAYS[x.getDay()===0?6:x.getDay()-1];if((s.days||[]).includes(dn))tot+=nh;x.setDate(x.getDate()+1);}
+    while(x<=t){
+      const ds=x.toISOString().slice(0,10);
+      const dn=DAYS[x.getDay()===0?6:x.getDay()-1];
+      if((s.days||[]).includes(dn)&&!vacSet.has(ds))tot+=nh;
+      x.setDate(x.getDate()+1);
+    }
   });
   return tot;
 }
@@ -916,7 +919,10 @@ async function renderCal(){
   toolbar.style.display='flex';
   const {data:period}=await db.from('periods').select('*').eq('id',currentPeriod).single();
   const {data:emps}=await db.from('employees').select('*, schedules(*)').eq('period_id',currentPeriod).order('name');
-  calCache={period,emps};
+  const {data:vacs}=await db.from('vacations').select('*');
+  const vacSet=new Set((vacs||[]).map(v=>v.date));
+  const vacMap={};(vacs||[]).forEach(v=>vacMap[v.date]=v.label||'Holiday');
+  calCache={period,emps,vacSet,vacMap};
   const pp=document.getElementById('cal-person-picker');
   if(emps&&emps.length){
     pp.innerHTML=emps.map(e=>`<option value="${e.id}" ${calPersonId===e.id?'selected':''}>${e.name}</option>`).join('');
@@ -924,8 +930,8 @@ async function renderCal(){
     pp.value=calPersonId;
   }
   if(!emps||!emps.length){ct.innerHTML='<div class="empty">No employees in this period.</div>';return;}
-  if(calTab==='grid')renderCalGrid(period,emps,ct);
-  else renderCalPerson(period,emps,ct);
+  if(calTab==='grid')renderCalGrid(period,emps,ct,vacSet,vacMap);
+  else renderCalPerson(period,emps,ct,vacSet,vacMap);
 }
 function calPickPeriod(id){currentPeriod=id;calPersonId=null;renderCal();}
 function calSetPerson(id){calPersonId=id;renderCalPerson(calCache.period,calCache.emps,document.getElementById('cal-content'));}
@@ -936,11 +942,11 @@ function calSetTab(t){
   document.getElementById('cal-person-picker-wrap').style.display=t==='person'?'flex':'none';
   if(!calCache.period||!calCache.emps)return;
   const ct=document.getElementById('cal-content');
-  if(t==='grid')renderCalGrid(calCache.period,calCache.emps,ct);
-  else renderCalPerson(calCache.period,calCache.emps,ct);
+  if(t==='grid')renderCalGrid(calCache.period,calCache.emps,ct,calCache.vacSet,calCache.vacMap);
+  else renderCalPerson(calCache.period,calCache.emps,ct,calCache.vacSet,calCache.vacMap);
 }
 
-function renderCalGrid(period,emps,ct){
+function renderCalGrid(period,emps,ct,vacSet,vacMap){
   // Timeline bounds: 8:00 to 19:30
   const T_START=8*60;   // 480 min
   const T_END=19*60+30; // 1170 min
@@ -953,12 +959,14 @@ function renderCalGrid(period,emps,ct){
   while(cur<=end){
     const ds=cur.toISOString().slice(0,10);
     const dow=cur.getDay(),dn=DAYS[dow===0?6:dow-1],wk=dow===0||dow===6;
-    const eds=emps.map(e=>{
+    const isVac=vacSet&&vacSet.has(ds);
+    const vacLabel=vacMap&&vacMap[ds]||'';
+    const eds=isVac?emps.map(e=>({emp:e,sched:null})):emps.map(e=>{
       let act=null;
       (e.schedules||[]).forEach(s=>{if((s.days||[]).includes(dn)&&ds>=s.from_date&&ds<=s.to_date)act=s;});
       return{emp:e,sched:act};
     });
-    dayRows.push({ds,dow,dn,wk,eds});
+    dayRows.push({ds,dow,dn,wk,isVac,vacLabel,eds});
     cur.setDate(cur.getDate()+1);
   }
 
@@ -983,6 +991,7 @@ function renderCalGrid(period,emps,ct){
   html+=`<span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:18px;height:12px;border-radius:3px;background:#7aafd4"></span>APN</span>`;
   html+=`<span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:18px;height:12px;border-radius:3px;background:#6dbfa0"></span>Counseling</span>`;
   html+=`<span style="color:#bbb">|</span>`;
+  html+=`<span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:18px;height:12px;border-radius:3px;background:#e8e0d8;border:1px solid #c8b8a0"></span><span style="color:#7a5c3a">Holiday / Closed</span></span>`;
   emps.forEach((e,i)=>{
     html+=`<span style="font-size:11px;color:#555">${e.name} <span style="padding:1px 5px;border-radius:10px;font-size:10px;background:${e.type==='A'?'#daeaf7':'#c8f0e2'};color:${e.type==='A'?'#0C447C':'#085041'}">${e.type}</span></span>`;
   });
@@ -1019,7 +1028,22 @@ function renderCalGrid(period,emps,ct){
       html+=`<div style="background:#e8edf2;color:#3a4a5c;font-size:11px;font-weight:600;padding:4px 10px;border-top:2px solid #c5cdd8;position:sticky;left:0">${lbl}</div>`;
     }
 
-    // How many employees work this day?
+    // Vacation day — render like a weekend but with label
+    if(isVac){
+      const rowBg='#f0ece8';
+      html+=`<div style="display:flex;border-bottom:1px solid #e0d8d0;background:${rowBg};min-height:28px">`;
+      html+=`<div style="flex-shrink:0;width:${DATE_W}px;padding:5px 8px;border-right:2px solid #d0c8c0;position:sticky;left:0;z-index:5;background:#e8e0d8">`;
+      html+=`<div style="font-size:12px;font-weight:600;color:#7a5c3a">${fmtDs(ds)}</div>`;
+      html+=`<div style="font-size:10px;color:#a07850">${dn}</div>`;
+      html+=`</div>`;
+      html+=`<div style="flex:1;display:flex;align-items:center;padding:0 12px;gap:8px">`;
+      html+=`<span style="font-size:11px;color:#9b6b3a;font-weight:600">&#128718; ${vacLabel}</span>`;
+      html+=`<span style="font-size:10px;color:#b89070;font-style:italic">Closed</span>`;
+      html+=`</div></div>`;
+      return;
+    }
+
+    // Normal day
     const workingEds=eds.filter(ed=>ed.sched);
     const rowH=workingEds.length>0
       ? ROW_PAD*2 + workingEds.length*(BAR_H+BAR_GAP) - BAR_GAP
@@ -1057,7 +1081,6 @@ function renderCalGrid(period,emps,ct){
       const color=empColors[ei];
       const name=ed.emp.name;
       const nh=netHrs(ed.sched);
-      // Short label: first name + hours
       const firstName=name.split(' ')[0];
       html+=`<div style="position:absolute;left:${leftPct}%;width:${widthPct}%;top:${top}px;height:${BAR_H}px;background:${color};border-radius:4px;display:flex;align-items:center;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.18);border-left:3px solid rgba(0,0,0,.18)">
         <span style="font-size:10px;font-weight:700;color:#1a3a52;white-space:nowrap;padding:0 6px;letter-spacing:.01em">${firstName}</span>
@@ -1079,7 +1102,7 @@ function renderCalPerson(period,emps,ct){
   calPersonId=emp.id;
   document.getElementById('cal-person-picker').value=emp.id;
   const rows=[];
-  const d=new Date(period.start_date+'T00:00:00'),end=new Date(period.end_date+'T00:00:00');
+  const d=parseLocalDate(period.start_date),end=parseLocalDate(period.end_date);
   while(d<=end){
     const ds=d.toISOString().slice(0,10);
     const dow=d.getDay(),di=dow===0?6:dow-1,dn=DAYS[di];
@@ -1130,7 +1153,7 @@ function downloadCSV(){
   if(calTab==='grid'){
     const header=['Date','Day',...emps.map(e=>e.name+' shift'),...emps.map(e=>e.name+' net hrs')];
     const lines=[header.join(',')];
-    const d=new Date(period.start_date+'T00:00:00'),end=new Date(period.end_date+'T00:00:00');
+    const d=parseLocalDate(period.start_date),end=parseLocalDate(period.end_date);
     while(d<=end){
       const ds=d.toISOString().slice(0,10);
       const dow=d.getDay(),di=dow===0?6:dow-1,dn=DAYS[di];
@@ -1153,7 +1176,7 @@ function downloadCSV(){
     const emp=emps.find(e=>e.id===calPersonId);
     if(!emp){toast('Select an employee first',true);return;}
     const lines=[['Date','Day','Shift start','Shift end','Break (min)','Net hours'].join(',')];
-    const d=new Date(period.start_date+'T00:00:00'),end=new Date(period.end_date+'T00:00:00');
+    const d=parseLocalDate(period.start_date),end=parseLocalDate(period.end_date);
     while(d<=end){
       const ds=d.toISOString().slice(0,10);
       const dow=d.getDay(),di=dow===0?6:dow-1,dn=DAYS[di];
@@ -1175,7 +1198,19 @@ function downloadCSV(){
 }
 
 // ── USERS ─────────────────────────────────────────────────
-async function renderUsers(){
+// ── SETTINGS ──────────────────────────────────────────────
+let settingsTab='access';
+function renderSettings(tab){
+  settingsTab=tab||settingsTab;
+  document.getElementById('stab-access').classList.toggle('active',settingsTab==='access');
+  document.getElementById('stab-vacations').classList.toggle('active',settingsTab==='vacations');
+  if(settingsTab==='access') renderAccess();
+  else renderVacations();
+}
+
+async function renderAccess(){
+  const ct=document.getElementById('settings-content');
+  ct.innerHTML='<div class="empty"><span class="spinner"></span> Loading...</div>';
   const {data}=await db.from('users').select('*').order('name');
   const rows=(data||[]).map(u=>`<tr>
     <td>${u.name}</td><td><code style="font-size:12px">${u.username}</code></td>
@@ -1185,9 +1220,74 @@ async function renderUsers(){
       <button class="btn btns" onclick="editUserMod('${u.id}','${u.name}','${u.username}','${u.role}')">Edit</button>
       <button class="btn btns btnd" onclick="deleteUser('${u.id}')">Remove</button>
     </div></td></tr>`).join('');
-  document.getElementById('users-table').innerHTML=`<div class="card"><table>
-    <thead><tr><th>Name</th><th>Username</th><th>Password</th><th>Role</th><th></th></tr></thead>
-    <tbody>${rows}</tbody></table></div>`;
+  ct.innerHTML=`
+    <div class="card">
+      <div style="font-size:13px;font-weight:500;margin-bottom:9px;color:#888">Add user</div>
+      <div class="row">
+        <div style="flex:2"><label>Name</label><input id="u-name" placeholder="Full name"></div>
+        <div style="flex:2"><label>Username</label><input id="u-login" placeholder="login"></div>
+        <div style="flex:2"><label>Password</label><input type="password" id="u-pass" placeholder="password"></div>
+        <div style="flex:1"><label>Role</label><select id="u-role"><option value="viewer">Viewer</option><option value="admin">Manager</option></select></div>
+        <button class="btn btnp" onclick="addUser()">Add</button>
+      </div>
+    </div>
+    <div class="card"><table>
+      <thead><tr><th>Name</th><th>Username</th><th>Password</th><th>Role</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+}
+async function renderUsers(){renderAccess();}
+
+async function renderVacations(){
+  const ct=document.getElementById('settings-content');
+  ct.innerHTML='<div class="empty"><span class="spinner"></span> Loading...</div>';
+  const {data:vacs,error}=await db.from('vacations').select('*').order('date');
+  ct.innerHTML=`
+    <div class="card">
+      <div style="font-size:13px;font-weight:500;margin-bottom:9px;color:#888">Add vacation / holiday</div>
+      <div class="row">
+        <div style="flex:1"><label>Date</label><input type="date" id="v-date"></div>
+        <div style="flex:3"><label>Label (e.g. Independence Day)</label><input id="v-label" placeholder="Holiday name"></div>
+        <button class="btn btnp" onclick="addVacation()">Add</button>
+      </div>
+    </div>
+    <div class="card">
+      <div style="font-size:13px;font-weight:500;margin-bottom:10px;color:#888">
+        Vacation &amp; holiday days
+        <span style="font-weight:400;margin-left:8px;font-size:12px">(applied across all periods)</span>
+      </div>
+      ${!vacs||!vacs.length
+        ?'<div class="empty">No vacation days defined yet.</div>'
+        :`<table>
+          <thead><tr><th>Date</th><th>Day</th><th>Label</th><th></th></tr></thead>
+          <tbody>${vacs.map(v=>{
+            const dt=parseLocalDate(v.date);
+            const dn=DAYF[dt.getDay()===0?6:dt.getDay()-1];
+            return `<tr>
+              <td style="font-weight:500">${fmtD(v.date)}</td>
+              <td style="color:#888">${dn}</td>
+              <td>${v.label||''}</td>
+              <td><button class="btn btns btnd" onclick="deleteVacation('${v.id}')">Remove</button></td>
+            </tr>`;
+          }).join('')}
+          </tbody></table>`}
+    </div>`;
+}
+
+async function addVacation(){
+  const date=document.getElementById('v-date').value;
+  const label=document.getElementById('v-label').value.trim();
+  if(!date){alert('Please select a date');return;}
+  const {error}=await db.from('vacations').insert({id:uid(),date,label});
+  if(error){toast(error.message.includes('unique')?'This date is already added':'Error adding vacation',true);return;}
+  document.getElementById('v-date').value='';
+  document.getElementById('v-label').value='';
+  toast('Vacation day added');
+  renderVacations();
+}
+async function deleteVacation(id){
+  await db.from('vacations').delete().eq('id',id);
+  toast('Vacation day removed');
+  renderVacations();
 }
 async function addUser(){
   const name=document.getElementById('u-name').value.trim();
@@ -1200,7 +1300,7 @@ async function addUser(){
   document.getElementById('u-name').value='';
   document.getElementById('u-login').value='';
   document.getElementById('u-pass').value='';
-  toast('User added');renderUsers();
+  toast('User added');renderAccess();
 }
 function editUserMod(id,name,username,role){
   showMod(`<h3>Edit user</h3>
@@ -1221,13 +1321,13 @@ async function saveUser(id){
   const role=document.getElementById('m-r').value;
   const upd={name,username,role};if(pw)upd.password=pw;
   await db.from('users').update(upd).eq('id',id);
-  closeMod();toast('User updated');renderUsers();
+  closeMod();toast('User updated');renderAccess();
 }
 async function deleteUser(id){
   if(currentUser&&currentUser.id===id){alert('Cannot delete yourself');return;}
   if(!confirm('Remove this user?'))return;
   await db.from('users').delete().eq('id',id);
-  toast('User removed');renderUsers();
+  toast('User removed');renderAccess();
 }
 </script>
 </body>
