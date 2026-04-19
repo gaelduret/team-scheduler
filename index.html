@@ -1142,13 +1142,16 @@ function renderCalPerson(period,emps,ct){
   while(d<=end){
     const ds=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
     const dow=d.getDay(),di=dow===0?6:dow-1,dn=DAYS[di];
-    (emp.schedules||[]).forEach(s=>{
-      if((s.days||[]).includes(dn)&&ds>=s.from_date&&ds<=s.to_date){
-        const nh=netHrs(s);
-        const brk=s.break_minutes!=null?s.break_minutes:30;
-        rows.push({date:ds,day:dn,start:s.shift_start,end:s.shift_end,brk,hrs:nh});
-      }
-    });
+    // Skip holidays
+    if(!globalVacSet.has(ds)){
+      (emp.schedules||[]).forEach(s=>{
+        if((s.days||[]).includes(dn)&&ds>=s.from_date&&ds<=s.to_date){
+          const nh=netHrs(s);
+          const brk=s.break_minutes!=null?s.break_minutes:30;
+          rows.push({date:ds,day:dn,start:s.shift_start,end:s.shift_end,brk,hrs:nh});
+        }
+      });
+    }
     d.setDate(d.getDate()+1);
   }
   const totalHrs=rows.reduce((a,r)=>a+r.hrs,0);
@@ -1193,12 +1196,15 @@ function downloadCSV(){
     while(d<=end){
       const ds=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
       const dow=d.getDay(),di=dow===0?6:dow-1,dn=DAYS[di];
+      const isHol=globalVacSet.has(ds);
       const shifts=emps.map(e=>{
+        if(isHol)return 'Holiday';
         let found=null;
         (e.schedules||[]).forEach(s=>{if((s.days||[]).includes(dn)&&ds>=s.from_date&&ds<=s.to_date)found=s;});
         return found?`${found.shift_start}-${found.shift_end}`:'';
       });
       const hrs=emps.map(e=>{
+        if(isHol)return '';
         let found=null;
         (e.schedules||[]).forEach(s=>{if((s.days||[]).includes(dn)&&ds>=s.from_date&&ds<=s.to_date)found=s;});
         return found?netHrs(found).toFixed(1):'';
@@ -1216,12 +1222,14 @@ function downloadCSV(){
     while(d<=end){
       const ds=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
       const dow=d.getDay(),di=dow===0?6:dow-1,dn=DAYS[di];
-      (emp.schedules||[]).forEach(s=>{
-        if((s.days||[]).includes(dn)&&ds>=s.from_date&&ds<=s.to_date){
-          const brk=s.break_minutes!=null?s.break_minutes:30;
-          lines.push([ds,dn,s.shift_start,s.shift_end,brk,netHrs(s).toFixed(1)].join(','));
-        }
-      });
+      if(!globalVacSet.has(ds)){
+        (emp.schedules||[]).forEach(s=>{
+          if((s.days||[]).includes(dn)&&ds>=s.from_date&&ds<=s.to_date){
+            const brk=s.break_minutes!=null?s.break_minutes:30;
+            lines.push([ds,dn,s.shift_start,s.shift_end,brk,netHrs(s).toFixed(1)].join(','));
+          }
+        });
+      }
       d.setDate(d.getDate()+1);
     }
     csv=lines.join('\n');
