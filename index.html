@@ -1026,7 +1026,7 @@ function renderCalGrid(period,emps,ct,vacSet,vacMap){
   html+=`</div></div>`;
 
   // ── DAY ROWS ─────────────────────────────────────────
-  dayRows.forEach(({ds,dow,dn,wk,eds})=>{
+  dayRows.forEach(({ds,dow,dn,wk,isVac,vacLabel,eds})=>{
     // Week separator on Monday
     if(dow===1){
       const wdt=new Date(ds+'T00:00:00');
