@@ -555,18 +555,24 @@ function renderEmpList(emps,period){
       </div>
       ${schs.length?`
         <div style="font-size:12px;color:#888;margin-bottom:5px">Schedules:</div>
-        <table><thead><tr><th>Days</th><th>Shift</th><th>Break</th><th>From</th><th>To</th><th>Net hrs/wk</th><th></th></tr></thead><tbody>
-        ${schs.map(s=>`<tr>
+        <table><thead><tr><th>Days</th><th>Shift</th><th>Break</th><th>From</th><th>To</th><th>Hrs/shift</th><th>Nbr shifts</th><th>Total hrs</th><th></th></tr></thead><tbody>
+        ${schs.map(s=>{
+          const hShift=netHrs(s);
+          const nShifts=countShifts(s,period);
+          const totHrs=hShift*nShifts;
+          return `<tr>
           <td>${s.days.join(', ')}</td>
           <td>${s.shift_start} &ndash; ${s.shift_end}</td>
           <td>${s.break_minutes!=null?s.break_minutes:30} min</td>
           <td>${fmtD(s.from_date)}</td><td>${fmtD(s.to_date)}</td>
-          <td>${(netHrs(s)*s.days.length).toFixed(1)}h</td>
+          <td style="text-align:center">${hShift.toFixed(1)}h</td>
+          <td style="text-align:center">${nShifts}</td>
+          <td style="text-align:center;font-weight:500">${totHrs.toFixed(1)}h</td>
           <td style="display:flex;gap:4px">
             <button class="btn btns" onclick="editSchedMod('${s.id}','${e.id}','${period.start_date}','${period.end_date}')">Edit</button>
             <button class="btn btns btnd" onclick="deleteSched('${s.id}')">Remove</button>
           </td>
-        </tr>`).join('')}
+        </tr>`;}).join('')}
         </tbody></table>`
       :'<div style="font-size:12px;color:#ccc">No schedules defined.</div>'}
     </div>`;
@@ -598,6 +604,20 @@ function renderEmpSummary(emps,period){
     <tbody>${rows}</tbody></table></div>`;
 }
 
+// Count how many times a schedule fires within the period date range
+function countShifts(s,period){
+  const f=new Date(Math.max(+new Date(s.from_date),+new Date(period.start_date)));
+  const t=new Date(Math.min(+new Date(s.to_date),+new Date(period.end_date)));
+  if(f>t)return 0;
+  let count=0;
+  const x=new Date(f);
+  while(x<=t){
+    const dn=DAYS[x.getDay()===0?6:x.getDay()-1];
+    if((s.days||[]).includes(dn))count++;
+    x.setDate(x.getDate()+1);
+  }
+  return count;
+}
 function calcTotalHours(emp,period){
   let tot=0;
   (emp.schedules||[]).forEach(s=>{
