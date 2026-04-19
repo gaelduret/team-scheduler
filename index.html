@@ -1067,6 +1067,10 @@ function renderCalGrid(period,emps,ct,vacSet,vacMap){
     }
 
     // Normal day
+    const workingEds=eds.filter(ed=>ed.sched);
+    const rowH=workingEds.length>0
+      ? ROW_PAD*2 + workingEds.length*(BAR_H+BAR_GAP) - BAR_GAP
+      : 28;
     // Color palette by day-of-week index (Mon=0..Sun=6)
     // Mon/Wed/Fri = green family (alternating light/lighter)
     // Tue/Thu     = blue family (alternating light/lighter)
