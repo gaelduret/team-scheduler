@@ -625,7 +625,7 @@ function calcTotalHours(emp,period){
     const nh=netHrs(s);
     const x=new Date(f);
     while(x<=t){
-      const ds=x.toISOString().slice(0,10);
+      const ds=x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
       const dn=DAYS[x.getDay()===0?6:x.getDay()-1];
       if((s.days||[]).includes(dn)&&!vacSet.has(ds))tot+=nh;
       x.setDate(x.getDate()+1);
@@ -919,9 +919,13 @@ async function renderCal(){
   toolbar.style.display='flex';
   const {data:period}=await db.from('periods').select('*').eq('id',currentPeriod).single();
   const {data:emps}=await db.from('employees').select('*, schedules(*)').eq('period_id',currentPeriod).order('name');
-  const {data:vacs}=await db.from('vacations').select('*');
-  const vacSet=new Set((vacs||[]).map(v=>v.date));
-  const vacMap={};(vacs||[]).forEach(v=>vacMap[v.date]=v.label||'Holiday');
+  let vacSet=new Set(),vacMap={};
+  try{
+    const {data:vacs,error:ve}=await db.from('vacations').select('*');
+    if(!ve&&vacs){
+      vacs.forEach(v=>{vacSet.add(v.date);vacMap[v.date]=v.label||'Holiday';});
+    }
+  }catch(e){}
   calCache={period,emps,vacSet,vacMap};
   const pp=document.getElementById('cal-person-picker');
   if(emps&&emps.length){
@@ -957,7 +961,7 @@ function renderCalGrid(period,emps,ct,vacSet,vacMap){
   const cur=new Date(period.start_date+'T00:00:00');
   const end=new Date(period.end_date+'T00:00:00');
   while(cur<=end){
-    const ds=cur.toISOString().slice(0,10);
+    const ds=cur.getFullYear()+'-'+String(cur.getMonth()+1).padStart(2,'0')+'-'+String(cur.getDate()).padStart(2,'0');
     const dow=cur.getDay(),dn=DAYS[dow===0?6:dow-1],wk=dow===0||dow===6;
     const isVac=vacSet&&vacSet.has(ds);
     const vacLabel=vacMap&&vacMap[ds]||'';
@@ -1104,7 +1108,7 @@ function renderCalPerson(period,emps,ct){
   const rows=[];
   const d=parseLocalDate(period.start_date),end=parseLocalDate(period.end_date);
   while(d<=end){
-    const ds=d.toISOString().slice(0,10);
+    const ds=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
     const dow=d.getDay(),di=dow===0?6:dow-1,dn=DAYS[di];
     (emp.schedules||[]).forEach(s=>{
       if((s.days||[]).includes(dn)&&ds>=s.from_date&&ds<=s.to_date){
@@ -1155,7 +1159,7 @@ function downloadCSV(){
     const lines=[header.join(',')];
     const d=parseLocalDate(period.start_date),end=parseLocalDate(period.end_date);
     while(d<=end){
-      const ds=d.toISOString().slice(0,10);
+      const ds=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
       const dow=d.getDay(),di=dow===0?6:dow-1,dn=DAYS[di];
       const shifts=emps.map(e=>{
         let found=null;
@@ -1178,7 +1182,7 @@ function downloadCSV(){
     const lines=[['Date','Day','Shift start','Shift end','Break (min)','Net hours'].join(',')];
     const d=parseLocalDate(period.start_date),end=parseLocalDate(period.end_date);
     while(d<=end){
-      const ds=d.toISOString().slice(0,10);
+      const ds=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
       const dow=d.getDay(),di=dow===0?6:dow-1,dn=DAYS[di];
       (emp.schedules||[]).forEach(s=>{
         if((s.days||[]).includes(dn)&&ds>=s.from_date&&ds<=s.to_date){
@@ -1240,7 +1244,7 @@ async function renderUsers(){renderAccess();}
 async function renderVacations(){
   const ct=document.getElementById('settings-content');
   ct.innerHTML='<div class="empty"><span class="spinner"></span> Loading...</div>';
-  const {data:vacs,error}=await db.from('vacations').select('*').order('date');
+  const {data:vacs,error}=await db.from('vacations').select('*').order('date').then(r=>r).catch(()=>({data:[],error:null}));
   ct.innerHTML=`
     <div class="card">
       <div style="font-size:13px;font-weight:500;margin-bottom:9px;color:#888">Add vacation / holiday</div>
