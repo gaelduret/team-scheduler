@@ -911,31 +911,36 @@ async function renderCal(){
   const ct=document.getElementById('cal-content');
   const toolbar=document.getElementById('cal-toolbar');
   ct.innerHTML='<div class="empty"><span class="spinner"></span> Loading...</div>';
-  const {data:allPeriods}=await db.from('periods').select('*').order('start_date');
-  if(!allPeriods||!allPeriods.length){toolbar.style.display='none';ct.innerHTML='<div class="empty">No periods available yet.</div>';return;}
-  if(!currentPeriod)currentPeriod=allPeriods[0].id;
-  document.getElementById('cal-period-picker').innerHTML=
-    allPeriods.map(p=>`<option value="${p.id}" ${currentPeriod===p.id?'selected':''}>${p.name} (${fmtD(p.start_date)} &ndash; ${fmtD(p.end_date)})</option>`).join('');
-  toolbar.style.display='flex';
-  const {data:period}=await db.from('periods').select('*').eq('id',currentPeriod).single();
-  const {data:emps}=await db.from('employees').select('*, schedules(*)').eq('period_id',currentPeriod).order('name');
-  let vacSet=new Set(),vacMap={};
   try{
-    const {data:vacs,error:ve}=await db.from('vacations').select('*');
-    if(!ve&&vacs){
-      vacs.forEach(v=>{vacSet.add(v.date);vacMap[v.date]=v.label||'Holiday';});
+    const {data:allPeriods,error:e1}=await db.from('periods').select('*').order('start_date');
+    if(e1)throw new Error('Periods: '+e1.message);
+    if(!allPeriods||!allPeriods.length){toolbar.style.display='none';ct.innerHTML='<div class="empty">No periods available yet.</div>';return;}
+    if(!currentPeriod)currentPeriod=allPeriods[0].id;
+    document.getElementById('cal-period-picker').innerHTML=
+      allPeriods.map(p=>`<option value="${p.id}" ${currentPeriod===p.id?'selected':''}>${p.name} (${fmtD(p.start_date)} &ndash; ${fmtD(p.end_date)})</option>`).join('');
+    toolbar.style.display='flex';
+    const {data:period,error:e2}=await db.from('periods').select('*').eq('id',currentPeriod).single();
+    if(e2)throw new Error('Period: '+e2.message);
+    const {data:emps,error:e3}=await db.from('employees').select('*, schedules(*)').eq('period_id',currentPeriod).order('name');
+    if(e3)throw new Error('Employees: '+e3.message);
+    let vacSet=new Set(),vacMap={};
+    const {data:vacs,error:e4}=await db.from('vacations').select('*');
+    if(e4){ct.innerHTML+='<div style="font-size:11px;color:#a32d2d;padding:4px 8px">Warning: could not load vacations ('+e4.message+')</div>';}
+    else if(vacs){vacs.forEach(v=>{vacSet.add(v.date);vacMap[v.date]=v.label||'Holiday';});}
+    calCache={period,emps,vacSet,vacMap};
+    const pp=document.getElementById('cal-person-picker');
+    if(emps&&emps.length){
+      pp.innerHTML=emps.map(e=>`<option value="${e.id}" ${calPersonId===e.id?'selected':''}>${e.name}</option>`).join('');
+      if(!calPersonId||!emps.find(e=>e.id===calPersonId))calPersonId=emps[0].id;
+      pp.value=calPersonId;
     }
-  }catch(e){}
-  calCache={period,emps,vacSet,vacMap};
-  const pp=document.getElementById('cal-person-picker');
-  if(emps&&emps.length){
-    pp.innerHTML=emps.map(e=>`<option value="${e.id}" ${calPersonId===e.id?'selected':''}>${e.name}</option>`).join('');
-    if(!calPersonId||!emps.find(e=>e.id===calPersonId))calPersonId=emps[0].id;
-    pp.value=calPersonId;
+    if(!emps||!emps.length){ct.innerHTML='<div class="empty">No employees in this period.</div>';return;}
+    if(calTab==='grid')renderCalGrid(period,emps,ct,vacSet,vacMap);
+    else renderCalPerson(period,emps,ct,vacSet,vacMap);
+  }catch(err){
+    ct.innerHTML='<div class="alrt err" style="margin:16px">&#9888; Calendar error: '+err.message+'</div>';
+    console.error('renderCal error:',err);
   }
-  if(!emps||!emps.length){ct.innerHTML='<div class="empty">No employees in this period.</div>';return;}
-  if(calTab==='grid')renderCalGrid(period,emps,ct,vacSet,vacMap);
-  else renderCalPerson(period,emps,ct,vacSet,vacMap);
 }
 function calPickPeriod(id){currentPeriod=id;calPersonId=null;renderCal();}
 function calSetPerson(id){calPersonId=id;renderCalPerson(calCache.period,calCache.emps,document.getElementById('cal-content'));}
@@ -1096,7 +1101,7 @@ function renderCalGrid(period,emps,ct,vacSet,vacMap){
   });
 
   html+=`</div></div>`;
-  ct.innerHTML=html;
+  try{ct.innerHTML=html;}catch(err){ct.innerHTML='<div class="alrt err" style="margin:16px">Calendar render error: '+err.message+'</div>';console.error(err);}
 }
 
 function renderCalPerson(period,emps,ct){
