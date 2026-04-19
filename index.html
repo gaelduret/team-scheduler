@@ -749,32 +749,24 @@ function renderCalGrid(period,emps,ct){
   for(let h=8;h<=19;h++) ticks.push(h);
 
   // Bar height and row height
-  const BAR_H=14;   // px per employee bar
-  const BAR_GAP=3;  // gap between bars
-  const ROW_PAD=6;  // top+bottom padding
+  const BAR_H=18;   // px per employee bar
+  const BAR_GAP=4;  // gap between bars
+  const ROW_PAD=5;  // top+bottom padding
   const DATE_W=76;  // px for the date column
 
-  // Assign a fixed color per employee (by index so it's consistent)
-  const EMP_COLORS_A=['#185FA5','#1a7abd','#1d8fd4','#2196c4'];
-  const EMP_COLORS_C=['#0f6e56','#158c6a','#1aaa7f','#1bc494'];
-
-  let aIdx=0,cIdx=0;
-  const empColors=emps.map(e=>{
-    if(e.type==='A') return EMP_COLORS_A[aIdx++%EMP_COLORS_A.length];
-    return EMP_COLORS_C[cIdx++%EMP_COLORS_C.length];
-  });
+  // Color by type: APN = blue, Counseling = green
+  const empColors=emps.map(e=>e.type==='A'?'#185FA5':'#0f6e56');
 
   // Build HTML
   let html=`<div style="font-size:13px;margin-bottom:6px;color:#888">Period: <strong>${period.name}</strong> | ${fmtD(period.start_date)} &ndash; ${fmtD(period.end_date)}</div>`;
 
   // Legend
-  html+=`<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;font-size:12px">`;
+  html+=`<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px;font-size:12px;align-items:center">`;
+  html+=`<span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:18px;height:12px;border-radius:3px;background:#185FA5"></span>APN</span>`;
+  html+=`<span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:18px;height:12px;border-radius:3px;background:#0f6e56"></span>Counseling</span>`;
+  html+=`<span style="color:#bbb">|</span>`;
   emps.forEach((e,i)=>{
-    html+=`<span style="display:flex;align-items:center;gap:5px">
-      <span style="display:inline-block;width:22px;height:10px;border-radius:3px;background:${empColors[i]}"></span>
-      <span>${e.name}</span>
-      <span style="padding:1px 6px;border-radius:20px;font-size:10px;background:${e.type==='A'?'#B5D4F4':'#9FE1CB'};color:${e.type==='A'?'#0C447C':'#085041'}">${e.type==='A'?'APN':'C'}</span>
-    </span>`;
+    html+=`<span style="font-size:11px;color:#555">${e.name} <span style="padding:1px 5px;border-radius:10px;font-size:10px;background:${e.type==='A'?'#daeaf7':'#c8f0e2'};color:${e.type==='A'?'#0C447C':'#085041'}">${e.type}</span></span>`;
   });
   html+=`</div>`;
 
@@ -849,8 +841,8 @@ function renderCalGrid(period,emps,ct){
       const nh=netHrs(ed.sched);
       // Short label: first name + hours
       const firstName=name.split(' ')[0];
-      html+=`<div style="position:absolute;left:${leftPct}%;width:${widthPct}%;top:${top}px;height:${BAR_H}px;background:${color};border-radius:3px;display:flex;align-items:center;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.15)">
-        <span style="font-size:10px;font-weight:600;color:#fff;white-space:nowrap;padding:0 5px;text-overflow:ellipsis;overflow:hidden">${firstName} &middot; ${nh.toFixed(1)}h</span>
+      html+=`<div style="position:absolute;left:${leftPct}%;width:${widthPct}%;top:${top}px;height:${BAR_H}px;background:${color};border-radius:4px;display:flex;align-items:center;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.18);border-left:3px solid rgba(0,0,0,.18)">
+        <span style="font-size:10px;font-weight:700;color:#fff;white-space:nowrap;padding:0 6px;letter-spacing:.01em">${firstName}</span>
       </div>`;
       barIndex++;
     });
