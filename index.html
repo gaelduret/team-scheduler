@@ -274,6 +274,7 @@ async function renderPeriods(){
           ${currentPeriod===p.id?'<span style="font-size:11px;color:#185FA5;font-weight:500">Selected</span>':''}
           <button class="btn btns" onclick="event.stopPropagation();copyScheduleMod('${p.id}','${p.name}','${p.start_date}','${p.end_date}')">Copy from&hellip;</button>
           <button class="btn btns" onclick="event.stopPropagation();editPeriodMod('${p.id}','${p.name}','${p.start_date}','${p.end_date}')">Edit</button>
+          <button class="btn btns" style="color:#92540a;border-color:#f5cfa0" onclick="event.stopPropagation();resetPeriod('${p.id}','${p.name}')">Reset</button>
           <button class="btn btns btnd" onclick="event.stopPropagation();deletePeriod('${p.id}')">Delete</button>
         </div>
       </div>
@@ -297,6 +298,38 @@ async function deletePeriod(id){
   await db.from('periods').delete().eq('id',id);
   if(currentPeriod===id)currentPeriod=null;
   toast('Period deleted');renderPeriods();
+}
+async function resetPeriod(id,name){
+  // Two-step confirmation for destructive action
+  showMod(`<h3>Reset period</h3>
+    <div style="background:#fff8f0;border:1px solid #f5cfa0;border-radius:8px;padding:12px 14px;margin-bottom:14px">
+      <div style="font-weight:600;color:#92540a;margin-bottom:6px">&#9888; This will permanently delete:</div>
+      <ul style="font-size:13px;color:#92540a;padding-left:18px;line-height:1.8">
+        <li>All employees in <strong>${name}</strong></li>
+        <li>All their shift schedules</li>
+      </ul>
+      <div style="font-size:12px;color:#92540a;margin-top:8px">The period itself (name and dates) will be kept.</div>
+    </div>
+    <div class="fg"><label style="font-size:12px;color:#666">Type the period name to confirm:</label>
+      <input id="m-reset-confirm" placeholder="${name}" oninput="document.getElementById('m-reset-btn').disabled=this.value!=='${name}'">
+    </div>
+    <div class="ma">
+      <button class="btn" onclick="closeMod()">Cancel</button>
+      <button class="btn" id="m-reset-btn" disabled
+        style="background:#c05e0a;color:#fff;border-color:#c05e0a"
+        onclick="confirmResetPeriod('${id}','${name}')">Reset period</button>
+    </div>`);
+}
+async function confirmResetPeriod(id,name){
+  document.getElementById('m-reset-btn').disabled=true;
+  document.getElementById('m-reset-btn').textContent='Resetting...';
+  // Delete all employees in this period (cascades to schedules via FK)
+  const {error}=await db.from('employees').delete().eq('period_id',id);
+  if(error){toast('Error resetting period',true);closeMod();return;}
+  closeMod();
+  toast('Period "'+name+'" has been reset — all employees and schedules removed');
+  if(currentPeriod===id)renderEmp();
+  renderPeriods();
 }
 function editPeriodMod(id,name,start,end){
   showMod(`<h3>Edit period</h3>
@@ -627,7 +660,8 @@ async function addSched(eid){
   const days=DAYS.filter(d=>{const el=document.getElementById('ck-'+d);return el&&el.checked;});
   const ss=document.getElementById('m-ss').value,se=document.getElementById('m-se').value;
   const sf=document.getElementById('m-sf').value,st=document.getElementById('m-st').value;
-  const brk=parseInt(document.getElementById('m-brk').value)||30;
+  const brkVal=document.getElementById('m-brk').value;
+  const brk=brkVal===''||brkVal===null?30:parseInt(brkVal);
   if(!days.length){alert('Select at least one day');return;}
   if(!ss||!se||!sf||!st){alert('Fill all fields');return;}
   await db.from('schedules').insert({id:uid(),employee_id:eid,days,shift_start:ss,shift_end:se,break_minutes:brk,from_date:sf,to_date:st});
@@ -661,7 +695,8 @@ async function saveSched(sid){
   const days=DAYS.filter(d=>{const el=document.getElementById('ck-'+d);return el&&el.checked;});
   const ss=document.getElementById('m-ss').value,se=document.getElementById('m-se').value;
   const sf=document.getElementById('m-sf').value,st=document.getElementById('m-st').value;
-  const brk=parseInt(document.getElementById('m-brk').value)||30;
+  const brkVal=document.getElementById('m-brk').value;
+  const brk=brkVal===''||brkVal===null?30:parseInt(brkVal);
   if(!days.length){alert('Select at least one day');return;}
   if(!ss||!se||!sf||!st){alert('Fill all fields');return;}
   await db.from('schedules').update({days,shift_start:ss,shift_end:se,break_minutes:brk,from_date:sf,to_date:st}).eq('id',sid);
@@ -738,7 +773,7 @@ function handleImportFile(input){
       <tbody>${importRows.map(r=>`<tr>
         <td>${r.name}</td><td>${r.type}</td><td>${r.days}</td>
         <td>${r.shift_start} &ndash; ${r.shift_end}</td>
-        <td>${r.break_minutes||30} min</td>
+        <td>${r.break_minutes!=null?r.break_minutes:30} min</td>
         <td>${r.from_date}</td><td>${r.to_date}</td>
       </tr>`).join('')}</tbody></table></div>`;
     document.getElementById('imp-status').textContent=`${importRows.length} schedule row(s) ready to import.`;
@@ -822,7 +857,7 @@ async function doImport(){
     // Parse days
     const days=String(r.days).split(',').map(d=>d.trim()).filter(d=>DAYS.includes(d));
     if(!days.length){errors++;continue;}
-    const brk=parseInt(r.break_minutes)||30;
+    const brk=r.break_minutes!==''&&r.break_minutes!=null?parseInt(r.break_minutes):30;
     const {error:se}=await db.from('schedules').insert({
       id:uid(),employee_id:empId,days,
       shift_start:parseImportTime(r.shift_start),
