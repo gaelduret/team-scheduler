@@ -272,6 +272,7 @@ async function renderPeriods(){
         <div style="font-size:12px;color:#888;margin-top:2px">${fmtD(p.start_date)} &rarr; ${fmtD(p.end_date)}</div></div>
         <div style="display:flex;gap:6px;align-items:center">
           ${currentPeriod===p.id?'<span style="font-size:11px;color:#185FA5;font-weight:500">Selected</span>':''}
+          <button class="btn btns" onclick="event.stopPropagation();copyScheduleMod('${p.id}','${p.name}','${p.start_date}','${p.end_date}')">Copy from&hellip;</button>
           <button class="btn btns" onclick="event.stopPropagation();editPeriodMod('${p.id}','${p.name}','${p.start_date}','${p.end_date}')">Edit</button>
           <button class="btn btns btnd" onclick="event.stopPropagation();deletePeriod('${p.id}')">Delete</button>
         </div>
@@ -313,6 +314,161 @@ async function savePeriod(id){
   const end=document.getElementById('m-e').value;
   await db.from('periods').update({name,start_date:start,end_date:end}).eq('id',id);
   closeMod();toast('Period updated');renderPeriods();
+}
+
+// ── COPY SCHEDULE ─────────────────────────────────────────
+async function copyScheduleMod(toPeriodId,toPeriodName,toPeriodStart,toPeriodEnd){
+  // Load all other periods to pick source from
+  const {data:allPeriods}=await db.from('periods').select('*').order('start_date');
+  const others=allPeriods.filter(p=>p.id!==toPeriodId);
+  if(!others.length){
+    showMod(`<h3>Copy schedule</h3>
+      <p style="font-size:13px;color:#888;margin-bottom:16px">No other periods available to copy from.</p>
+      <div class="ma"><button class="btn" onclick="closeMod()">Close</button></div>`);
+    return;
+  }
+  const opts=others.map(p=>`<option value="${p.id}">${p.name} (${fmtD(p.start_date)} &ndash; ${fmtD(p.end_date)})</option>`).join('');
+  showMod(`<h3>Copy schedule into <em>${toPeriodName}</em></h3>
+    <p style="font-size:13px;color:#888;margin-bottom:14px">
+      Select a source period. Employees whose schedules overlap with
+      <strong>${fmtD(toPeriodStart)} &ndash; ${fmtD(toPeriodEnd)}</strong>
+      will be copied into this period.
+    </p>
+    <div class="fg"><label>Copy from period</label>
+      <select id="m-copy-src">${opts}</select>
+    </div>
+    <div style="font-size:12px;color:#888;margin-bottom:4px">
+      &#9432; If an employee already exists in <em>${toPeriodName}</em>, their existing schedules
+      will be <strong>replaced</strong> with the copied ones. You will be warned before this happens.
+    </div>
+    <div class="ma">
+      <button class="btn" onclick="closeMod()">Cancel</button>
+      <button class="btn btnp" onclick="doCopySchedule('${toPeriodId}','${toPeriodStart}','${toPeriodEnd}')">Preview &amp; copy &rarr;</button>
+    </div>`);
+}
+
+async function doCopySchedule(toPeriodId,toPeriodStart,toPeriodEnd){
+  const srcId=document.getElementById('m-copy-src').value;
+  if(!srcId)return;
+
+  // Load source employees + schedules
+  const {data:srcEmps}=await db.from('employees').select('*, schedules(*)').eq('period_id',srcId).order('name');
+  if(!srcEmps||!srcEmps.length){
+    toast('Source period has no employees',true);return;
+  }
+
+  // Find employees whose schedules overlap with target period date range
+  const toStart=toPeriodStart,toEnd=toPeriodEnd;
+  const overlapping=srcEmps.filter(e=>{
+    return (e.schedules||[]).some(s=>s.from_date<=toEnd&&s.to_date>=toStart);
+  });
+
+  if(!overlapping.length){
+    toast('No schedules overlap with the target period dates',true);return;
+  }
+
+  // Load existing employees in target period to detect conflicts
+  const {data:existingEmps}=await db.from('employees').select('id,name').eq('period_id',toPeriodId);
+  const existingNames=(existingEmps||[]).map(e=>e.name.toLowerCase());
+  const conflicts=overlapping.filter(e=>existingNames.includes(e.name.toLowerCase()));
+
+  // Build preview HTML
+  const empList=overlapping.map(e=>{
+    const hasConflict=existingNames.includes(e.name.toLowerCase());
+    const overlappingSchs=(e.schedules||[]).filter(s=>s.from_date<=toEnd&&s.to_date>=toStart);
+    return `<tr>
+      <td style="font-weight:500">${e.name}</td>
+      <td><span class="${e.type==='A'?'ba':'bc'}">${e.type==='A'?'APN':'Counseling'}</span></td>
+      <td>${overlappingSchs.length} schedule${overlappingSchs.length!==1?'s':''}</td>
+      <td>${hasConflict
+        ?'<span style="color:#a32d2d;font-weight:500">&#9888; Will replace existing</span>'
+        :'<span style="color:#0f6e56">&#10003; New</span>'}</td>
+    </tr>`;
+  }).join('');
+
+  const warnHtml=conflicts.length
+    ?`<div style="background:#FCEBEB;color:#a32d2d;border-radius:8px;padding:10px 14px;font-size:12px;margin-bottom:12px">
+        <strong>&#9888; Warning:</strong> ${conflicts.length} employee${conflicts.length!==1?'s':''} already exist${conflicts.length===1?'s':''} in <em>${toPeriodStart} &ndash; ${toPeriodEnd}</em>.
+        Their current schedules in that period will be <strong>deleted and replaced</strong> with the copied ones.
+      </div>`
+    :'';
+
+  showMod(`<h3>Preview: ${overlapping.length} employee${overlapping.length!==1?'s':''} to copy</h3>
+    ${warnHtml}
+    <div style="max-height:260px;overflow-y:auto;margin-bottom:12px">
+      <table>
+        <thead><tr><th>Employee</th><th>Type</th><th>Schedules</th><th>Status</th></tr></thead>
+        <tbody>${empList}</tbody>
+      </table>
+    </div>
+    <div class="ma">
+      <button class="btn" onclick="closeMod()">Cancel</button>
+      <button class="btn btnp" onclick="confirmCopySchedule('${srcId}','${toPeriodId}','${toPeriodStart}','${toPeriodEnd}')">${conflicts.length?'&#9888; Replace &amp; copy':'Copy schedules'}</button>
+    </div>`);
+}
+
+async function confirmCopySchedule(srcId,toPeriodId,toStart,toEnd){
+  document.querySelector('#modal-box .btnp').disabled=true;
+  document.querySelector('#modal-box .btnp').textContent='Copying...';
+
+  const {data:srcEmps}=await db.from('employees').select('*, schedules(*)').eq('period_id',srcId).order('name');
+  const {data:existingEmps}=await db.from('employees').select('id,name').eq('period_id',toPeriodId);
+  const existingMap={};
+  (existingEmps||[]).forEach(e=>existingMap[e.name.toLowerCase()]=e.id);
+
+  let created=0,updated=0,scheds=0,errors=0;
+
+  for(const srcEmp of srcEmps){
+    // Only copy schedules overlapping with target period
+    const overlappingSchs=(srcEmp.schedules||[]).filter(s=>s.from_date<=toEnd&&s.to_date>=toStart);
+    if(!overlappingSchs.length)continue;
+
+    const nameKey=srcEmp.name.toLowerCase();
+    let empId=existingMap[nameKey];
+
+    if(empId){
+      // Employee exists — delete their existing schedules in the target period date range
+      const {data:oldSchs}=await db.from('schedules')
+        .select('id').eq('employee_id',empId);
+      // Delete schedules that overlap with the target period
+      const toDelete=(oldSchs||[]).filter(s=>true); // delete all for this employee in this period
+      if(toDelete.length){
+        await db.from('schedules').delete().eq('employee_id',empId);
+      }
+      updated++;
+    } else {
+      // Create new employee in target period
+      empId=uid();
+      const {error}=await db.from('employees').insert({
+        id:empId,period_id:toPeriodId,name:srcEmp.name,type:srcEmp.type
+      });
+      if(error){errors++;continue;}
+      existingMap[nameKey]=empId;
+      created++;
+    }
+
+    // Clip schedule dates to the target period bounds and copy
+    for(const s of overlappingSchs){
+      const fromDate=s.from_date<toStart?toStart:s.from_date;
+      const toDate=s.to_date>toEnd?toEnd:s.to_date;
+      const {error}=await db.from('schedules').insert({
+        id:uid(),
+        employee_id:empId,
+        days:s.days,
+        shift_start:s.shift_start,
+        shift_end:s.shift_end,
+        break_minutes:s.break_minutes!=null?s.break_minutes:30,
+        from_date:fromDate,
+        to_date:toDate
+      });
+      if(error)errors++;
+      else scheds++;
+    }
+  }
+
+  closeMod();
+  toast(`Done: ${created} new, ${updated} updated, ${scheds} schedules copied${errors?' ('+errors+' errors)':''}`);
+  renderPeriods();
 }
 
 // ── EMPLOYEES ─────────────────────────────────────────────
