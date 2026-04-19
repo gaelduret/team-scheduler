@@ -1067,19 +1067,28 @@ function renderCalGrid(period,emps,ct,vacSet,vacMap){
     }
 
     // Normal day
-    const workingEds=eds.filter(ed=>ed.sched);
-    const rowH=workingEds.length>0
-      ? ROW_PAD*2 + workingEds.length*(BAR_H+BAR_GAP) - BAR_GAP
-      : 28;
-    const rowBg=wk?'#ededeb':'#f0f4f8';
-    const rowBorder='border-bottom:1px solid #eeeeee;';
+    // Color palette by day-of-week index (Mon=0..Sun=6)
+    // Mon/Wed/Fri = green family (alternating light/lighter)
+    // Tue/Thu     = blue family (alternating light/lighter)
+    // Sat/Sun     = warm gray (weekend)
+    const DAY_ROW_BG   =['#e8f4ee','#e8eef8','#eef7f2','#edf3fb','#e8f4ee','#edebe8','#edebe8'];
+    const DAY_CELL_BG  =['#d4ecde','#d4e4f4','#dceee5','#dce8f2','#d4ecde','#e0dbd6','#e0dbd6'];
+    const DAY_NAME_COL =['#2e7d52','#2c5f9e','#2e7d52','#2c5f9e','#2e7d52','#7a7370','#7a7370'];
+    const DAY_BORDER   =['#b8ddc8','#b8cff0','#c4e4d0','#c4d8ec','#b8ddc8','#ccc8c4','#ccc8c4'];
+
+    const di2=wk?(dow===6?6:5):dow===0?6:dow-1; // 0=Mon..6=Sun
+    const rowBg=DAY_ROW_BG[di2];
+    const cellBg=DAY_CELL_BG[di2];
+    const nameCol=DAY_NAME_COL[di2];
+    const borderCol=DAY_BORDER[di2];
+    const rowBorder=`border-bottom:1px solid ${borderCol};`;
 
     html+=`<div style="display:flex;${rowBorder}background:${rowBg};min-height:${rowH}px">`;
 
     // Date cell — sticky left
-    html+=`<div style="flex-shrink:0;width:${DATE_W}px;padding:5px 8px;border-right:2px solid #d0d0d0;position:sticky;left:0;z-index:5;background:${wk?'#efefed':'#f7f7f5'}">`;
-    html+=`<div style="font-size:12px;font-weight:600;color:#222">${fmtDs(ds)}</div>`;
-    html+=`<div style="font-size:10px;color:#999">${dn}</div>`;
+    html+=`<div style="flex-shrink:0;width:${DATE_W}px;padding:5px 8px;border-right:2px solid ${borderCol};position:sticky;left:0;z-index:5;background:${cellBg}">`;
+    html+=`<div style="font-size:12px;font-weight:700;color:#1a2a3a">${fmtDs(ds)}</div>`;
+    html+=`<div style="font-size:10px;font-weight:500;color:${nameCol}">${dn}</div>`;
     html+=`</div>`;
 
     // Timeline area
@@ -1088,7 +1097,7 @@ function renderCalGrid(period,emps,ct,vacSet,vacMap){
     // Hour grid lines (subtle)
     ticks.forEach(h=>{
       const pct=((h*60-T_START)/T_SPAN*100).toFixed(3);
-      html+=`<div style="position:absolute;left:${pct}%;top:0;bottom:0;border-left:1px solid #d8dfe8;pointer-events:none"></div>`;
+      html+=`<div style="position:absolute;left:${pct}%;top:0;bottom:0;border-left:1px solid ${borderCol};opacity:0.5;pointer-events:none"></div>`;
     });
 
     // Shift bars — one per working employee, stacked vertically
