@@ -1178,8 +1178,8 @@ function renderCalGrid(period,emps,allEmps,ct,vacSet,vacMap){
     // Mon/Wed/Fri = green family (alternating light/lighter)
     // Tue/Thu     = blue family (alternating light/lighter)
     // Sat/Sun     = warm gray (weekend)
-    const DAY_ROW_BG   =['#e8f4ee','#e8eef8','#eef7f2','#edf3fb','#e8f4ee','#edebe8','#edebe8'];
-    const DAY_CELL_BG  =['#d4ecde','#d4e4f4','#dceee5','#dce8f2','#d4ecde','#e0dbd6','#e0dbd6'];
+    const DAY_ROW_BG   =['#ffffff','#ffffff','#ffffff','#ffffff','#ffffff','#f7f5f3','#f7f5f3'];
+    const DAY_CELL_BG  =['#ffffff','#ffffff','#ffffff','#ffffff','#ffffff','#f0edea','#f0edea'];
     const DAY_NAME_COL =['#2e7d52','#2c5f9e','#2e7d52','#2c5f9e','#2e7d52','#7a7370','#7a7370'];
     const DAY_BORDER   =['#7ec4a0','#7aaad8','#8ed0b0','#8abcd4','#7ec4a0','#aaa69e','#aaa69e'];
 
@@ -1195,7 +1195,7 @@ function renderCalGrid(period,emps,allEmps,ct,vacSet,vacMap){
     // Date cell — sticky left
     html+=`<div style="flex-shrink:0;width:${DATE_W}px;padding:5px 8px;border-right:2px solid ${borderCol};position:sticky;left:0;z-index:5;background:${cellBg}">`;
     html+=`<div style="font-size:12px;font-weight:700;color:#1a2a3a">${fmtDs(ds)}</div>`;
-    html+=`<div style="font-size:10px;font-weight:500;color:${nameCol}">${dn}</div>`;
+    html+=`<div style="font-size:11px;font-weight:700;color:${nameCol}">${DAYF[di2]}</div>`;
     html+=`</div>`;
 
     // Timeline area
@@ -1246,9 +1246,9 @@ function renderCalGrid(period,emps,allEmps,ct,vacSet,vacMap){
         }
       });
       const maxCount=Math.max(...counts,1);
-      html+=`<div style="display:flex;border-bottom:1px solid ${borderCol};background:${rowBg};opacity:0.85">`;
-      html+=`<div style="flex-shrink:0;width:${DATE_W}px;padding:1px 8px;border-right:2px solid ${borderCol};position:sticky;left:0;z-index:5;background:${cellBg};display:flex;align-items:center">`;
-      html+=`<span style="font-size:8px;color:#aaa;font-weight:400;line-height:1.1;white-space:nowrap">on site</span>`;
+      html+=`<div style="display:flex;border-bottom:2px solid ${borderCol};background:#fff8ed">`;
+      html+=`<div style="flex-shrink:0;width:${DATE_W}px;padding:1px 8px;border-right:2px solid ${borderCol};position:sticky;left:0;z-index:5;background:#fef0d0;display:flex;align-items:center">`;
+      html+=`<span style="font-size:8px;color:#9a6200;font-weight:700;line-height:1.1;white-space:nowrap;letter-spacing:.03em">on site</span>`;
       html+=`</div>`;
       html+=`<div style="flex:1;position:relative;height:13px">`;
       for(let i=0;i<SLOTS;i++){
