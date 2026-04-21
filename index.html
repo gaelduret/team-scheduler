@@ -173,7 +173,10 @@ td{padding:7px 9px;border-bottom:1px solid #f0f0f0}
           <label style="font-size:12px;color:#888;margin:0;white-space:nowrap">Employee:</label>
           <select id="cal-person-picker" onchange="calSetPerson(this.value)" style="max-width:200px"></select>
         </div>
-        <button class="btn btns btnp" onclick="downloadCSV()" style="margin-left:auto">&#11015; Download CSV</button>
+        <div id="cal-export-btns" style="display:none;gap:6px;margin-left:auto">
+          <button class="btn btns" onclick="downloadICS()">&#128197; Export to Calendar</button>
+          <button class="btn btns btnp" onclick="downloadCSV()">&#11015; Download CSV</button>
+        </div>
       </div>
       <div id="cal-content"></div>
     </div>
@@ -1057,6 +1060,7 @@ function calSetTab(t){
   document.getElementById('cal-tab-person').classList.toggle('active',t==='person');
   document.getElementById('cal-person-picker-wrap').style.display=t==='person'?'flex':'none';
   document.getElementById('emp-filter-wrap').style.display=t==='person'?'none':'block';
+  document.getElementById('cal-export-btns').style.display=t==='person'?'flex':'none';
   if(!calCache.period||!calCache.emps)return;
   const ct=document.getElementById('cal-content');
   if(t==='grid'){const fe=calEmpFilter.size===0?calCache.emps:calCache.emps.filter(e=>calEmpFilter.has(e.id));renderCalGrid(calCache.period,fe,calCache.emps,ct,calCache.vacSet,calCache.vacMap);}
@@ -1374,6 +1378,58 @@ function downloadCSV(){
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download=filename;a.click();
   URL.revokeObjectURL(url);toast('CSV downloaded');
+}
+
+function downloadICS(){
+  const {period,emps}=calCache;
+  if(!period||!emps){toast('Load the calendar first',true);return;}
+  const emp=emps.find(e=>e.id===calPersonId);
+  if(!emp){toast('Select an employee first',true);return;}
+
+  const pad=n=>String(n).padStart(2,'0');
+  const fmtDT=(dateStr,timeStr)=>{
+    const [y,mo,d]=dateStr.split('-');
+    const [h,mi]=timeStr.split(':');
+    return `${y}${pad(mo)}${pad(d)}T${pad(h)}${pad(mi)}00`;
+  };
+  const uid=()=>Math.random().toString(36).slice(2)+Date.now().toString(36)+'@teamscheduler';
+
+  const lines=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Team Scheduler//EN','CALSCALE:GREGORIAN','METHOD:PUBLISH'];
+  const d=parseLocalDate(period.start_date),end=parseLocalDate(period.end_date);
+  const now=new Date();
+  const dtstamp=`${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}T${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}Z`;
+
+  while(d<=end){
+    const ds=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+    const dow=d.getDay(),di=dow===0?6:dow-1,dn=DAYS[di];
+    if(!globalVacSet.has(ds)){
+      (emp.schedules||[]).forEach(s=>{
+        if((s.days||[]).includes(dn)&&ds>=s.from_date&&ds<=s.to_date){
+          const brk=s.break_minutes!=null?s.break_minutes:30;
+          const nh=netHrs(s).toFixed(1);
+          lines.push('BEGIN:VEVENT');
+          lines.push('UID:'+uid());
+          lines.push('DTSTAMP:'+dtstamp);
+          lines.push('DTSTART;TZID=America/New_York:'+fmtDT(ds,s.shift_start));
+          lines.push('DTEND;TZID=America/New_York:'+fmtDT(ds,s.shift_end));
+          lines.push('SUMMARY:Shift – '+emp.name);
+          lines.push('DESCRIPTION:'+s.shift_start+' – '+s.shift_end+' | Break: '+brk+' min | Net: '+nh+' hrs');
+          lines.push('END:VEVENT');
+        }
+      });
+    }
+    d.setDate(d.getDate()+1);
+  }
+  lines.push('END:VCALENDAR');
+
+  const blob=new Blob([lines.join('\r\n')],{type:'text/calendar;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=`${emp.name.replace(/\s+/g,'_')}_${period.name.replace(/\s+/g,'_')}.ics`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('Calendar file downloaded');
 }
 
 // ── USERS ─────────────────────────────────────────────────
