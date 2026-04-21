@@ -150,6 +150,21 @@ td{padding:7px 9px;border-bottom:1px solid #f0f0f0}
           <label style="font-size:12px;color:#888;margin:0;white-space:nowrap">Period:</label>
           <select id="cal-period-picker" onchange="calPickPeriod(this.value)" style="max-width:240px"></select>
         </div>
+        <div style="position:relative" id="emp-filter-wrap">
+          <button class="btn btns" id="emp-filter-btn" onclick="toggleEmpFilter(event)" style="display:flex;align-items:center;gap:5px;white-space:nowrap">
+            <span id="emp-filter-label">All employees</span>
+            <span style="font-size:9px;color:#888">&#9660;</span>
+          </button>
+          <div id="emp-filter-dropdown" style="display:none;position:absolute;top:calc(100% + 4px);left:0;background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:100;min-width:200px;max-height:280px;overflow-y:auto;padding:6px 0">
+            <div onclick="empFilterAll()" id="emp-filter-all" style="padding:6px 12px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:8px;border-bottom:1px solid #f0f0f0;margin-bottom:4px">
+              <span id="emp-filter-all-check" style="width:14px;height:14px;border:1px solid #185FA5;border-radius:3px;background:#185FA5;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0">
+                <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3l2.5 2.5L8 1" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              <span style="font-size:12px;font-weight:500;color:#111">All employees</span>
+            </div>
+            <div id="emp-filter-list"></div>
+          </div>
+        </div>
         <div style="display:flex;gap:4px">
           <button class="tab active" id="cal-tab-grid" onclick="calSetTab('grid')">Full calendar</button>
           <button class="tab" id="cal-tab-person" onclick="calSetTab('person')">By employee</button>
@@ -208,7 +223,7 @@ function toast(msg,err){
 function showMod(html){document.getElementById('modal-box').innerHTML=html;document.getElementById('overlay').classList.add('open');}
 function closeMod(){document.getElementById('overlay').classList.remove('open');document.getElementById('modal-box').innerHTML='';}
 
-let currentUser=null,currentPeriod=null,empTab='list',calTab='grid',calPersonId=null;
+let currentUser=null,currentPeriod=null,empTab='list',calTab='grid',calPersonId=null,calEmpFilter=new Set();
 let globalVacSet=new Set(); // loaded at login, used everywhere
 let calCache={period:null,emps:null};
 
@@ -239,7 +254,7 @@ async function loadGlobalVacations(){
   }catch(e){globalVacSet=new Set();}
 }
 function doLogout(){
-  currentUser=null;currentPeriod=null;calCache={period:null,emps:null};globalVacSet=new Set();
+  currentUser=null;currentPeriod=null;calCache={period:null,emps:null};globalVacSet=new Set();calEmpFilter=new Set();
   document.getElementById('app').style.display='none';
   document.getElementById('login-wrap').style.display='flex';
   document.getElementById('li-user').value='';document.getElementById('li-pass').value='';
@@ -925,6 +940,76 @@ async function doImport(){
 }
 
 // ── CALENDAR ──────────────────────────────────────────────
+function toggleEmpFilter(e){
+  e.stopPropagation();
+  const dd=document.getElementById('emp-filter-dropdown');
+  const open=dd.style.display!=='none';
+  dd.style.display=open?'none':'block';
+  if(!open){
+    const close=ev=>{if(!document.getElementById('emp-filter-wrap').contains(ev.target)){dd.style.display='none';document.removeEventListener('click',close);}};
+    setTimeout(()=>document.addEventListener('click',close),0);
+  }
+}
+function empFilterAll(){
+  calEmpFilter=new Set();
+  updateEmpFilterUI();
+  applyEmpFilter();
+}
+function empFilterToggle(id){
+  if(calEmpFilter.has(id))calEmpFilter.delete(id);
+  else calEmpFilter.add(id);
+  // If all are now selected, treat as "all"
+  const total=(calCache.emps||[]).length;
+  if(calEmpFilter.size>=total)calEmpFilter=new Set();
+  updateEmpFilterUI();
+  applyEmpFilter();
+}
+function updateEmpFilterUI(){
+  const emps=calCache.emps||[];
+  const allSel=calEmpFilter.size===0;
+  // Update "All" row check
+  const allCheck=document.getElementById('emp-filter-all-check');
+  if(allCheck)allCheck.style.background=allSel?'#185FA5':'#fff';
+  // Update each emp row
+  emps.forEach(e=>{
+    const row=document.getElementById('emp-frow-'+e.id);
+    const box=document.getElementById('emp-fbox-'+e.id);
+    if(row)row.style.background=(!allSel&&calEmpFilter.has(e.id))?'#EBF4FF':'';
+    if(box){
+      const sel=!allSel&&calEmpFilter.has(e.id);
+      box.style.background=sel?'#185FA5':'#fff';
+      box.innerHTML=sel?'<svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3l2.5 2.5L8 1" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>':'';
+    }
+  });
+  // Update button label
+  const btn=document.getElementById('emp-filter-label');
+  if(btn){
+    if(allSel){btn.textContent='All employees';}
+    else if(calEmpFilter.size===1){
+      const e=emps.find(x=>calEmpFilter.has(x.id));
+      btn.textContent=e?e.name.split(' ')[0]:'1 selected';
+    }else{btn.textContent=calEmpFilter.size+' employees';}
+  }
+}
+function applyEmpFilter(){
+  if(!calCache.period||!calCache.emps)return;
+  const ct=document.getElementById('cal-content');
+  if(calTab==='grid'){
+    const filtered=calEmpFilter.size===0?calCache.emps:calCache.emps.filter(e=>calEmpFilter.has(e.id));
+    renderCalGrid(calCache.period,filtered,calCache.emps,ct,calCache.vacSet,calCache.vacMap);
+  }
+}
+function buildEmpFilterList(emps){
+  const list=document.getElementById('emp-filter-list');
+  if(!list)return;
+  list.innerHTML=emps.map(e=>`
+    <div id="emp-frow-${e.id}" onclick="empFilterToggle('${e.id}')" style="padding:6px 12px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:8px">
+      <span id="emp-fbox-${e.id}" style="width:14px;height:14px;border:1px solid #ddd;border-radius:3px;background:#fff;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0"></span>
+      <span style="font-size:12px;color:#111">${e.name}</span>
+      <span style="margin-left:auto;padding:1px 6px;border-radius:10px;font-size:10px;background:${e.type==='A'?'#daeaf7':'#c8f0e2'};color:${e.type==='A'?'#0C447C':'#085041'}">${e.type}</span>
+    </div>`).join('');
+}
+
 async function renderCal(){
   const ct=document.getElementById('cal-content');
   const toolbar=document.getElementById('cal-toolbar');
@@ -954,14 +1039,17 @@ async function renderCal(){
       pp.value=calPersonId;
     }
     if(!emps||!emps.length){ct.innerHTML='<div class="empty">No employees in this period.</div>';return;}
-    if(calTab==='grid')renderCalGrid(period,emps,ct,vacSet,vacMap);
+    buildEmpFilterList(emps);
+    updateEmpFilterUI();
+    const filteredEmps=calEmpFilter.size===0?emps:emps.filter(e=>calEmpFilter.has(e.id));
+    if(calTab==='grid')renderCalGrid(period,filteredEmps,emps,ct,vacSet,vacMap);
     else renderCalPerson(period,emps,ct,vacSet,vacMap);
   }catch(err){
     ct.innerHTML='<div class="alrt err" style="margin:16px">&#9888; Calendar error: '+err.message+'</div>';
     console.error('renderCal error:',err);
   }
 }
-function calPickPeriod(id){currentPeriod=id;calPersonId=null;renderCal();}
+function calPickPeriod(id){currentPeriod=id;calPersonId=null;calEmpFilter=new Set();renderCal();}
 function calSetPerson(id){calPersonId=id;renderCalPerson(calCache.period,calCache.emps,document.getElementById('cal-content'));}
 function calSetTab(t){
   calTab=t;
@@ -970,11 +1058,11 @@ function calSetTab(t){
   document.getElementById('cal-person-picker-wrap').style.display=t==='person'?'flex':'none';
   if(!calCache.period||!calCache.emps)return;
   const ct=document.getElementById('cal-content');
-  if(t==='grid')renderCalGrid(calCache.period,calCache.emps,ct,calCache.vacSet,calCache.vacMap);
+  if(t==='grid'){const fe=calEmpFilter.size===0?calCache.emps:calCache.emps.filter(e=>calEmpFilter.has(e.id));renderCalGrid(calCache.period,fe,calCache.emps,ct,calCache.vacSet,calCache.vacMap);}
   else renderCalPerson(calCache.period,calCache.emps,ct,calCache.vacSet,calCache.vacMap);
 }
 
-function renderCalGrid(period,emps,ct,vacSet,vacMap){
+function renderCalGrid(period,emps,allEmps,ct,vacSet,vacMap){
   // Timeline bounds: 8:00 to 19:30
   const T_START=8*60;   // 480 min
   const T_END=19*60+30; // 1170 min
@@ -989,12 +1077,14 @@ function renderCalGrid(period,emps,ct,vacSet,vacMap){
     const dow=cur.getDay(),dn=DAYS[dow===0?6:dow-1],wk=dow===0||dow===6;
     const isVac=vacSet&&vacSet.has(ds);
     const vacLabel=vacMap&&vacMap[ds]||'';
-    const eds=isVac?emps.map(e=>({emp:e,sched:null})):emps.map(e=>{
+    const mapEds=(list)=>isVac?list.map(e=>({emp:e,sched:null})):list.map(e=>{
       let act=null;
       (e.schedules||[]).forEach(s=>{if((s.days||[]).includes(dn)&&ds>=s.from_date&&ds<=s.to_date)act=s;});
       return{emp:e,sched:act};
     });
-    dayRows.push({ds,dow,dn,wk,isVac,vacLabel,eds});
+    const eds=mapEds(emps);
+    const allEds=mapEds(allEmps||emps);
+    dayRows.push({ds,dow,dn,wk,isVac,vacLabel,eds,allEds});
     cur.setDate(cur.getDate()+1);
   }
 
@@ -1045,7 +1135,7 @@ function renderCalGrid(period,emps,ct,vacSet,vacMap){
   html+=`</div></div>`;
 
   // ── DAY ROWS ─────────────────────────────────────────
-  dayRows.forEach(({ds,dow,dn,wk,isVac,vacLabel,eds})=>{
+  dayRows.forEach(({ds,dow,dn,wk,isVac,vacLabel,eds,allEds})=>{
     // Week separator on Monday
     if(dow===1){
       const wdt=new Date(ds+'T00:00:00');
@@ -1136,11 +1226,12 @@ function renderCalGrid(period,emps,ct,vacSet,vacMap){
     html+=`</div></div>`;
 
     // ── STAFF COUNT ROW (per 30-min slot) ──────────────
-    if(!isVac && workingEds.length>0){
+    const allWorkingEds=(allEds||eds).filter(ed=>ed.sched);
+    if(!isVac && allWorkingEds.length>0){
       // Build count for each 30-min slot from T_START to T_END-30
       const SLOTS=(T_SPAN/30); // number of 30-min slots
       const counts=new Array(SLOTS).fill(0);
-      workingEds.forEach(({sched})=>{
+      allWorkingEds.forEach(({sched})=>{
         const a=sched.shift_start.split(':'),b=sched.shift_end.split(':');
         const startMin=+a[0]*60+ +a[1];
         const endMin=+b[0]*60+ +b[1];
