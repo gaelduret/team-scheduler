@@ -1056,6 +1056,7 @@ function calSetTab(t){
   document.getElementById('cal-tab-grid').classList.toggle('active',t==='grid');
   document.getElementById('cal-tab-person').classList.toggle('active',t==='person');
   document.getElementById('cal-person-picker-wrap').style.display=t==='person'?'flex':'none';
+  document.getElementById('emp-filter-wrap').style.display=t==='person'?'none':'block';
   if(!calCache.period||!calCache.emps)return;
   const ct=document.getElementById('cal-content');
   if(t==='grid'){const fe=calEmpFilter.size===0?calCache.emps:calCache.emps.filter(e=>calEmpFilter.has(e.id));renderCalGrid(calCache.period,fe,calCache.emps,ct,calCache.vacSet,calCache.vacMap);}
