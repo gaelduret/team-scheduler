@@ -59,6 +59,10 @@ td{padding:7px 9px;border-bottom:1px solid #f0f0f0}
 .dc{display:flex;flex-wrap:wrap;gap:7px}
 .dc label{display:flex;align-items:center;gap:4px;font-size:12px;color:#111;cursor:pointer;font-weight:normal}
 .dc input[type=checkbox]{width:auto}
+.day-chips{display:flex;flex-wrap:wrap;gap:7px}
+.day-chip{display:inline-flex;align-items:center;justify-content:center;min-width:44px;padding:5px 10px;border-radius:20px;border:1px solid #ddd;background:#fff;font-size:12px;font-weight:500;color:#555;cursor:pointer;user-select:none;transition:background .15s,border-color .15s,color .15s}
+.day-chip:hover{border-color:#185FA5;color:#185FA5}
+.day-chip.active{background:#185FA5;border-color:#185FA5;color:#fff}
 .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;align-items:center;justify-content:center}
 .overlay.open{display:flex}
 .modal{background:#fff;border-radius:12px;padding:20px;width:480px;max-width:95vw;border:1px solid #e5e5e5;max-height:90vh;overflow-y:auto}
@@ -684,9 +688,9 @@ async function deleteEmp(id){
 }
 
 function addScheduleMod(eid,pstart,pend){
-  const dh=DAYF.map((d,i)=>`<label><input type="checkbox" value="${DAYS[i]}" id="ck-${DAYS[i]}"> ${d}</label>`).join('');
+  const dh=DAYF.map((d,i)=>`<span class="day-chip" data-day="${DAYS[i]}" onclick="toggleDayChip(this)">${d.slice(0,3)}</span>`).join('');
   showMod(`<h3>Add shift schedule</h3>
-    <div class="fg"><label>Working days</label><div class="dc">${dh}</div></div>
+    <div class="fg"><label>Working days</label><div class="day-chips">${dh}</div></div>
     <div class="row">
       <div style="flex:1"><label>Shift start</label><input type="time" id="m-ss" value="08:30"></div>
       <div style="flex:1"><label>Shift end</label><input type="time" id="m-se" value="17:00"></div>
@@ -699,8 +703,9 @@ function addScheduleMod(eid,pstart,pend){
     <div class="ma"><button class="btn" onclick="closeMod()">Cancel</button>
     <button class="btn btnp" onclick="addSched('${eid}')">Add shift</button></div>`);
 }
+function toggleDayChip(el){el.classList.toggle('active');}
 async function addSched(eid){
-  const days=DAYS.filter(d=>{const el=document.getElementById('ck-'+d);return el&&el.checked;});
+  const days=[...document.querySelectorAll('.day-chip.active')].map(el=>el.dataset.day);
   const ss=document.getElementById('m-ss').value,se=document.getElementById('m-se').value;
   const sf=document.getElementById('m-sf').value,st=document.getElementById('m-st').value;
   const brkVal=document.getElementById('m-brk').value;
@@ -718,10 +723,10 @@ async function editSchedMod(sid,eid,pstart,pend){
   // Load the schedule record from Supabase so we have current values
   const {data:s}=await db.from('schedules').select('*').eq('id',sid).single();
   if(!s){toast('Could not load schedule',true);return;}
-  const dh=DAYF.map((d,i)=>`<label><input type="checkbox" value="${DAYS[i]}" id="ck-${DAYS[i]}" ${(s.days||[]).includes(DAYS[i])?'checked':''}> ${d}</label>`).join('');
+  const dh=DAYF.map((d,i)=>`<span class="day-chip${(s.days||[]).includes(DAYS[i])?' active':''}" data-day="${DAYS[i]}" onclick="toggleDayChip(this)">${d.slice(0,3)}</span>`).join('');
   const brk=s.break_minutes!=null?s.break_minutes:30;
   showMod(`<h3>Edit shift schedule</h3>
-    <div class="fg"><label>Working days</label><div class="dc">${dh}</div></div>
+    <div class="fg"><label>Working days</label><div class="day-chips">${dh}</div></div>
     <div class="row">
       <div style="flex:1"><label>Shift start</label><input type="time" id="m-ss" value="${s.shift_start}"></div>
       <div style="flex:1"><label>Shift end</label><input type="time" id="m-se" value="${s.shift_end}"></div>
@@ -735,7 +740,7 @@ async function editSchedMod(sid,eid,pstart,pend){
     <button class="btn btnp" onclick="saveSched('${sid}')">Save</button></div>`);
 }
 async function saveSched(sid){
-  const days=DAYS.filter(d=>{const el=document.getElementById('ck-'+d);return el&&el.checked;});
+  const days=[...document.querySelectorAll('.day-chip.active')].map(el=>el.dataset.day);
   const ss=document.getElementById('m-ss').value,se=document.getElementById('m-se').value;
   const sf=document.getElementById('m-sf').value,st=document.getElementById('m-st').value;
   const brkVal=document.getElementById('m-brk').value;
@@ -1125,6 +1130,40 @@ function renderCalGrid(period,emps,ct,vacSet,vacMap){
     });
 
     html+=`</div></div>`;
+
+    // ── STAFF COUNT ROW (per 30-min slot) ──────────────
+    if(!isVac && workingEds.length>0){
+      // Build count for each 30-min slot from T_START to T_END-30
+      const SLOTS=(T_SPAN/30); // number of 30-min slots
+      const counts=new Array(SLOTS).fill(0);
+      workingEds.forEach(({sched})=>{
+        const a=sched.shift_start.split(':'),b=sched.shift_end.split(':');
+        const startMin=+a[0]*60+ +a[1];
+        const endMin=+b[0]*60+ +b[1];
+        for(let i=0;i<SLOTS;i++){
+          const slotMin=T_START+i*30;
+          if(slotMin>=startMin && slotMin<endMin) counts[i]++;
+        }
+      });
+      const maxCount=Math.max(...counts,1);
+      html+=`<div style="display:flex;border-bottom:1px solid ${borderCol};background:${rowBg}">`;
+      html+=`<div style="flex-shrink:0;width:${DATE_W}px;padding:3px 8px;border-right:2px solid ${borderCol};position:sticky;left:0;z-index:5;background:${cellBg};display:flex;align-items:center">`;
+      html+=`<span style="font-size:9px;color:#888;font-weight:500;line-height:1.2">Staff<br>on site</span>`;
+      html+=`</div>`;
+      html+=`<div style="flex:1;position:relative;height:22px">`;
+      for(let i=0;i<SLOTS;i++){
+        const c=counts[i];
+        const leftPct=((i*30)/T_SPAN*100).toFixed(3);
+        const widthPct=((30)/T_SPAN*100).toFixed(3);
+        const intensity=c===0?0:0.15+0.65*(c/maxCount);
+        const bg=c===0?'transparent':`rgba(25,95,165,${intensity.toFixed(2)})`;
+        const textCol=c>0?(intensity>0.45?'#fff':'#0C447C'):'#ccc';
+        html+=`<div style="position:absolute;left:${leftPct}%;width:${widthPct}%;top:0;height:100%;background:${bg};display:flex;align-items:center;justify-content:center;border-right:1px solid rgba(0,0,0,0.05)">`;
+        if(c>0) html+=`<span style="font-size:9px;font-weight:600;color:${textCol}">${c}</span>`;
+        html+=`</div>`;
+      }
+      html+=`</div></div>`;
+    }
   });
 
   html+=`</div></div>`;
