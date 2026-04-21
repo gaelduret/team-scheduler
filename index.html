@@ -1241,11 +1241,11 @@ function renderCalGrid(period,emps,allEmps,ct,vacSet,vacMap){
         }
       });
       const maxCount=Math.max(...counts,1);
-      html+=`<div style="display:flex;border-bottom:1px solid ${borderCol};background:${rowBg}">`;
-      html+=`<div style="flex-shrink:0;width:${DATE_W}px;padding:3px 8px;border-right:2px solid ${borderCol};position:sticky;left:0;z-index:5;background:${cellBg};display:flex;align-items:center">`;
-      html+=`<span style="font-size:9px;color:#888;font-weight:500;line-height:1.2">Staff<br>on site</span>`;
+      html+=`<div style="display:flex;border-bottom:1px solid ${borderCol};background:${rowBg};opacity:0.85">`;
+      html+=`<div style="flex-shrink:0;width:${DATE_W}px;padding:1px 8px;border-right:2px solid ${borderCol};position:sticky;left:0;z-index:5;background:${cellBg};display:flex;align-items:center">`;
+      html+=`<span style="font-size:8px;color:#aaa;font-weight:400;line-height:1.1;white-space:nowrap">on site</span>`;
       html+=`</div>`;
-      html+=`<div style="flex:1;position:relative;height:22px">`;
+      html+=`<div style="flex:1;position:relative;height:13px">`;
       for(let i=0;i<SLOTS;i++){
         const c=counts[i];
         const leftPct=((i*30)/T_SPAN*100).toFixed(3);
@@ -1254,7 +1254,7 @@ function renderCalGrid(period,emps,allEmps,ct,vacSet,vacMap){
         const bg=c===0?'transparent':`rgba(186,117,23,${intensity.toFixed(2)})`;
         const textCol=c>0?(intensity>0.45?'#fff':'#854F0B'):'#ccc';
         html+=`<div style="position:absolute;left:${leftPct}%;width:${widthPct}%;top:0;height:100%;background:${bg};display:flex;align-items:center;justify-content:center;border-right:1px solid rgba(0,0,0,0.05)">`;
-        if(c>0) html+=`<span style="font-size:9px;font-weight:600;color:${textCol}">${c}</span>`;
+        if(c>0) html+=`<span style="font-size:8px;font-weight:600;color:${textCol};line-height:1">${c}</span>`;
         html+=`</div>`;
       }
       html+=`</div></div>`;
