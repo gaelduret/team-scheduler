@@ -1056,6 +1056,10 @@ function renderCalGrid(period,emps,ct,vacSet,vacMap){
       html+=`<div style="background:#e8edf2;color:#3a4a5c;font-size:11px;font-weight:600;padding:4px 10px;border-top:2px solid #c5cdd8;position:sticky;left:0">${lbl}</div>`;
     }
 
+    // Diagonal stripe patterns for closed/weekend days
+    const STRIPE_VAC=`repeating-linear-gradient(45deg,rgba(180,140,100,0.13) 0px,rgba(180,140,100,0.13) 4px,transparent 4px,transparent 12px)`;
+    const STRIPE_WK=`repeating-linear-gradient(45deg,rgba(120,110,100,0.10) 0px,rgba(120,110,100,0.10) 4px,transparent 4px,transparent 12px)`;
+
     // Vacation day — render like a weekend but with label
     if(isVac){
       const rowBg='#f0ece8';
@@ -1064,13 +1068,12 @@ function renderCalGrid(period,emps,ct,vacSet,vacMap){
       html+=`<div style="font-size:12px;font-weight:600;color:#7a5c3a">${fmtDs(ds)}</div>`;
       html+=`<div style="font-size:10px;color:#a07850">${dn}</div>`;
       html+=`</div>`;
-      html+=`<div style="flex:1;display:flex;align-items:center;padding:0 12px;gap:8px">`;
+      html+=`<div style="flex:1;display:flex;align-items:center;padding:0 12px;gap:8px;background:${STRIPE_VAC}">`;
       html+=`<span style="font-size:11px;color:#9b6b3a;font-weight:600">&#128718; ${vacLabel}</span>`;
       html+=`<span style="font-size:10px;color:#b89070;font-style:italic">Closed</span>`;
       html+=`</div></div>`;
       return;
     }
-
     // Normal day
     const workingEds=eds.filter(ed=>ed.sched);
     const rowH=workingEds.length>0
@@ -1101,7 +1104,8 @@ function renderCalGrid(period,emps,ct,vacSet,vacMap){
     html+=`</div>`;
 
     // Timeline area
-    html+=`<div style="flex:1;position:relative;min-height:${rowH}px">`;
+    const timelineBg=wk?`;background:${STRIPE_WK}`:'' ;
+    html+=`<div style="flex:1;position:relative;min-height:${rowH}px${timelineBg}">`;
 
     // Hour grid lines (subtle)
     ticks.forEach(h=>{
