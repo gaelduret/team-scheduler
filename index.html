@@ -1156,8 +1156,8 @@ function renderCalGrid(period,emps,ct,vacSet,vacMap){
         const leftPct=((i*30)/T_SPAN*100).toFixed(3);
         const widthPct=((30)/T_SPAN*100).toFixed(3);
         const intensity=c===0?0:0.15+0.65*(c/maxCount);
-        const bg=c===0?'transparent':`rgba(25,95,165,${intensity.toFixed(2)})`;
-        const textCol=c>0?(intensity>0.45?'#fff':'#0C447C'):'#ccc';
+        const bg=c===0?'transparent':`rgba(186,117,23,${intensity.toFixed(2)})`;
+        const textCol=c>0?(intensity>0.45?'#fff':'#854F0B'):'#ccc';
         html+=`<div style="position:absolute;left:${leftPct}%;width:${widthPct}%;top:0;height:100%;background:${bg};display:flex;align-items:center;justify-content:center;border-right:1px solid rgba(0,0,0,0.05)">`;
         if(c>0) html+=`<span style="font-size:9px;font-weight:600;color:${textCol}">${c}</span>`;
         html+=`</div>`;
