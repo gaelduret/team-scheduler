@@ -1352,7 +1352,7 @@ function renderCalPerson(period,emps,ct){
   const totalHrs=rows.reduce((a,r)=>a+r.hrs,0);
   const ini=emp.name.split(' ').map(x=>x[0]).join('');
   const bg=emp.type==='A'?'#B5D4F4':'#9FE1CB',col=emp.type==='A'?'#0C447C':'#085041';
-  let html=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+  let html=`<div style="flex:1;overflow-y:auto;min-height:0"><div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
     <div style="width:38px;height:38px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px;color:${col}">${ini}</div>
     <div>
       <div style="font-weight:600;font-size:15px">${emp.name}</div>
@@ -1376,6 +1376,7 @@ function renderCalPerson(period,emps,ct){
         </tr></tfoot>
       </table></div>`;
   }
+  html+=`</div>`;
   ct.innerHTML=html;
 }
 
