@@ -1174,6 +1174,7 @@ function renderCalRange(period,emps,ct){
   rows.forEach(r=>{if(!byDate[r.date])byDate[r.date]=[];byDate[r.date].push(r);});
   const dates=Object.keys(byDate).sort();
   const totalHrs=rows.reduce((a,r)=>a+r.hrs,0);
+  calCache.rangeRows=rows; // cache for CSV export
 
   let tableHtml='';
   if(!rows.length){
@@ -1238,6 +1239,9 @@ function renderCalRange(period,emps,ct){
           <label style="font-size:12px;color:#888;display:block;margin-bottom:6px">Interns</label>
           <div style="display:flex;flex-wrap:wrap;gap:6px">${allPill}${internCheckboxes}</div>
         </div>
+        <div style="display:flex;align-items:flex-end;padding-bottom:2px">
+          <button class="btn btns btnp" onclick="downloadRangeCSV()" ${!rows.length?'disabled':''}>&#11015; Export CSV</button>
+        </div>
       </div>
     </div>
     ${tableHtml}
@@ -1255,6 +1259,34 @@ function rangeToggleEmp(id,checked){
 function rangeSelectAll(){
   rangeFilter.empIds=new Set();
   renderCalRange(calCache.period,calCache.emps,document.getElementById('cal-content'));
+}
+function downloadRangeCSV(){
+  const rows=calCache.rangeRows||[];
+  if(!rows.length){toast('No data to export',true);return;}
+  const period=calCache.period;
+  const lines=[['Date','Day','Intern','Type','Shift start','Shift end','Break (min)','Net hours'].join(',')];
+  rows.forEach(r=>{
+    lines.push([
+      r.date,
+      r.dayName,
+      '"'+r.emp.name+'"',
+      r.emp.type,
+      r.sched.shift_start,
+      r.sched.shift_end,
+      r.sched.break_minutes!=null?r.sched.break_minutes:30,
+      r.hrs.toFixed(2)
+    ].join(','));
+  });
+  // Totals row
+  const total=rows.reduce((a,r)=>a+r.hrs,0);
+  lines.push(['','','','','','','Total',total.toFixed(2)].join(','));
+  const blob=new Blob([lines.join('\n')],{type:'text/csv'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`schedule_${period?period.name.replace(/\s+/g,'_'):'range'}_${rangeFilter.from}_${rangeFilter.to}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('CSV exported');
 }
 
 function renderCalGrid(period,emps,allEmps,ct,vacSet,vacMap){
