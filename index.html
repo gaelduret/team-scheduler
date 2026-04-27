@@ -1239,8 +1239,9 @@ function renderCalRange(period,emps,ct){
           <label style="font-size:12px;color:#888;display:block;margin-bottom:6px">Interns</label>
           <div style="display:flex;flex-wrap:wrap;gap:6px">${allPill}${internCheckboxes}</div>
         </div>
-        <div style="display:flex;align-items:flex-end;padding-bottom:2px">
-          <button class="btn btns btnp" onclick="downloadRangeCSV()" ${!rows.length?'disabled':''}>&#11015; Export CSV</button>
+        <div style="display:flex;align-items:flex-end;gap:6px;padding-bottom:2px">
+          <button class="btn btns" onclick="downloadRangeCSV()" ${!rows.length?'disabled':''}>&#11015; CSV</button>
+          <button class="btn btns btnp" onclick="downloadRangeXLSX()" ${!rows.length?'disabled':''}>&#11015; Excel</button>
         </div>
       </div>
     </div>
@@ -1287,6 +1288,82 @@ function downloadRangeCSV(){
   a.click();
   URL.revokeObjectURL(a.href);
   toast('CSV exported');
+}
+
+function downloadRangeXLSX(){
+  const rows=calCache.rangeRows||[];
+  if(!rows.length){toast('No data to export',true);return;}
+  const period=calCache.period;
+  const wb=XLSX.utils.book_new();
+  const ws={};
+
+  // Style helpers
+  const border={top:{style:'thin',color:{rgb:'D0D7E2'}},bottom:{style:'thin',color:{rgb:'D0D7E2'}},left:{style:'thin',color:{rgb:'D0D7E2'}},right:{style:'thin',color:{rgb:'D0D7E2'}}};
+  const leftAlign={horizontal:'left',vertical:'center'};
+  const centerAlign={horizontal:'center',vertical:'center'};
+  const rightAlign={horizontal:'right',vertical:'center'};
+  function cx(v,s){const o={v,t:typeof v==='number'?'n':'s'};if(s)o.s=s;return o;}
+
+  // Title rows
+  ws['A1']=cx(`Schedule — ${period?period.name:''}`,{font:{bold:true,sz:14,color:{rgb:'1E4E8C'}},alignment:leftAlign});
+  ws['A2']=cx(`${fmtD(rangeFilter.from)} \u2192 ${fmtD(rangeFilter.to)}`,{font:{sz:10,color:{rgb:'888888'}},alignment:leftAlign});
+  const merges=[{s:{r:0,c:0},e:{r:0,c:7}},{s:{r:1,c:0},e:{r:1,c:7}}];
+
+  // Header row (row index 2)
+  const headers=['Date','Day','Intern','Type','Shift start','Shift end','Break (min)','Net hours'];
+  const hdrAligns=[leftAlign,leftAlign,leftAlign,centerAlign,centerAlign,centerAlign,centerAlign,centerAlign];
+  headers.forEach((h,ci)=>{
+    ws[XLSX.utils.encode_cell({r:2,c:ci})]=cx(h,{
+      font:{bold:true,color:{rgb:'FFFFFF'},sz:11},
+      fill:{patternType:'solid',fgColor:{rgb:'1E4E8C'}},
+      border,alignment:hdrAligns[ci]
+    });
+  });
+
+  // Data rows
+  const byDate={};
+  rows.forEach(r=>{if(!byDate[r.date])byDate[r.date]=[];byDate[r.date].push(r);});
+  const dates=Object.keys(byDate).sort();
+  let ri=3,rowNum=0;
+  dates.forEach(ds=>{
+    const dayRows=byDate[ds];
+    const isAlt=rowNum%2===1;
+    const rowBg=isAlt?{patternType:'solid',fgColor:{rgb:'F4F7FB'}}:{patternType:'solid',fgColor:{rgb:'FFFFFF'}};
+    const dateFill={patternType:'solid',fgColor:{rgb:'EBF3FB'}};
+    dayRows.forEach((r,i)=>{
+      const empFill={patternType:'solid',fgColor:{rgb:r.emp.type==='A'?'D0E8F8':'D4F3E8'}};
+      const empColor=r.emp.type==='A'?'0C447C':'085041';
+      const brk=r.sched.break_minutes!=null?r.sched.break_minutes:30;
+      const hrs=parseFloat(r.hrs.toFixed(2));
+      ws[XLSX.utils.encode_cell({r:ri,c:0})]=cx(i===0?fmtFull(ds):'',{font:{bold:true,sz:11},fill:dateFill,border,alignment:leftAlign});
+      ws[XLSX.utils.encode_cell({r:ri,c:1})]=cx(r.dayName,{font:{sz:11},fill:i===0?dateFill:rowBg,border,alignment:leftAlign});
+      ws[XLSX.utils.encode_cell({r:ri,c:2})]=cx(r.emp.name,{font:{bold:true,sz:11},fill:empFill,border,alignment:leftAlign});
+      ws[XLSX.utils.encode_cell({r:ri,c:3})]=cx(r.emp.type,{font:{sz:10,color:{rgb:empColor}},fill:empFill,border,alignment:centerAlign});
+      ws[XLSX.utils.encode_cell({r:ri,c:4})]=cx(r.sched.shift_start,{font:{sz:11},fill:rowBg,border,alignment:centerAlign});
+      ws[XLSX.utils.encode_cell({r:ri,c:5})]=cx(r.sched.shift_end,{font:{sz:11},fill:rowBg,border,alignment:centerAlign});
+      ws[XLSX.utils.encode_cell({r:ri,c:6})]=cx(brk,{t:'n',v:brk,font:{sz:11},fill:rowBg,border,alignment:centerAlign});
+      ws[XLSX.utils.encode_cell({r:ri,c:7})]=cx(hrs,{t:'n',v:hrs,font:{bold:true,sz:11},fill:rowBg,border,alignment:centerAlign,z:'0.00'});
+      ri++;
+    });
+    if(dayRows.length>1)merges.push({s:{r:ri-dayRows.length,c:0},e:{r:ri-1,c:0}});
+    rowNum++;
+  });
+
+  // Totals row
+  const total=parseFloat(rows.reduce((a,r)=>a+r.hrs,0).toFixed(2));
+  const totFill={patternType:'solid',fgColor:{rgb:'E8EEF6'}};
+  const totFont={bold:true,sz:11,color:{rgb:'1E4E8C'}};
+  ['','','','','','','Total'].forEach((v,ci)=>{
+    ws[XLSX.utils.encode_cell({r:ri,c:ci})]=cx(v,{font:totFont,fill:totFill,border,alignment:ci===6?rightAlign:leftAlign});
+  });
+  ws[XLSX.utils.encode_cell({r:ri,c:7})]=cx(total,{t:'n',v:total,font:totFont,fill:totFill,border,alignment:centerAlign,z:'0.00'});
+
+  ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:ri,c:7}});
+  ws['!merges']=merges;
+  ws['!cols']=[{wch:24},{wch:12},{wch:22},{wch:7},{wch:12},{wch:12},{wch:13},{wch:11}];
+  XLSX.utils.book_append_sheet(wb,ws,'Schedule');
+  XLSX.writeFile(wb,`schedule_${period?period.name.replace(/\s+/g,'_'):'range'}_${rangeFilter.from}_${rangeFilter.to}.xlsx`);
+  toast('Excel exported');
 }
 
 function renderCalGrid(period,emps,allEmps,ct,vacSet,vacMap){
