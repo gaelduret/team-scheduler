@@ -421,7 +421,9 @@ async function savePeriod(id){
   const start=document.getElementById('m-s').value;
   const end=document.getElementById('m-e').value;
   const status=document.getElementById('m-status').value;
-  await db.from('periods').update({name,start_date:start,end_date:end,status}).eq('id',id);
+  if(!name||!start||!end){alert('Fill all fields');return;}
+  const {error}=await db.from('periods').update({name,start_date:start,end_date:end,status}).eq('id',id);
+  if(error){toast('Error saving period: '+error.message,true);return;}
   closeMod();toast('Period updated');renderPeriods();
 }
 
