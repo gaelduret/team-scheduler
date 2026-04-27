@@ -312,7 +312,7 @@ async function renderPeriods(){
         <div style="display:flex;gap:6px;align-items:center">
           ${currentPeriod===p.id?'<span style="font-size:11px;color:#185FA5;font-weight:500">Selected</span>':''}
           <button class="btn btns" onclick="event.stopPropagation();copyScheduleMod('${p.id}','${p.name}','${p.start_date}','${p.end_date}')">Copy from&hellip;</button>
-          <button class="btn btns" onclick="event.stopPropagation();editPeriodMod('${p.id}','${p.name}','${p.start_date}','${p.end_date}','${p.status||'active'}')">Edit</button>
+          <button class="btn btns" onclick="event.stopPropagation();editPeriodMod('${p.id}','${p.name}','${p.start_date}','${p.end_date}',${p.status==='inactive'?'false':'true'})">Edit</button>
           <button class="btn btns" style="color:#92540a;border-color:#f5cfa0" onclick="event.stopPropagation();resetPeriod('${p.id}','${p.name}')">Reset</button>
           <button class="btn btns btnd" onclick="event.stopPropagation();deletePeriod('${p.id}')">Delete</button>
         </div>
@@ -377,22 +377,44 @@ async function confirmResetPeriod(id,name){
   if(currentPeriod===id)renderEmp();
   renderPeriods();
 }
-function editPeriodMod(id,name,start,end,status){
-  const isActive=(status||'active')!=='inactive';
+function editPeriodMod(id,name,start,end,isActive){
+  isActive=(isActive===false||isActive==='false')?false:true;
   showMod(`<h3>Edit period</h3>
     <div class="fg"><label>Name</label><input id="m-n" value="${name}"></div>
     <div class="row">
       <div style="flex:1"><label>Start</label><input type="date" id="m-s" value="${start}"></div>
       <div style="flex:1"><label>End</label><input type="date" id="m-e" value="${end}"></div>
     </div>
-    <div class="fg" style="margin-top:10px"><label>Status</label>
-      <select id="m-status">
-        <option value="active" ${isActive?'selected':''}>Active</option>
-        <option value="inactive" ${!isActive?'selected':''}>Inactive</option>
-      </select>
+    <div class="fg" style="margin-top:10px">
+      <label>Status</label>
+      <input type="hidden" id="m-status" value="${isActive?'active':'inactive'}">
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <button type="button" id="m-status-active"
+          onclick="setPeriodStatusBtn('active')"
+          style="flex:1;padding:7px 0;border-radius:8px;border:2px solid ${isActive?'#1a7a4a':'#ddd'};background:${isActive?'#e6f7ef':'#fff'};color:${isActive?'#1a7a4a':'#888'};font-weight:600;font-size:13px;cursor:pointer">
+          &#10003;&nbsp; Active
+        </button>
+        <button type="button" id="m-status-inactive"
+          onclick="setPeriodStatusBtn('inactive')"
+          style="flex:1;padding:7px 0;border-radius:8px;border:2px solid ${!isActive?'#888':'#ddd'};background:${!isActive?'#f5f5f5':'#fff'};color:${!isActive?'#555':'#aaa'};font-weight:600;font-size:13px;cursor:pointer">
+          &#8212;&nbsp; Inactive
+        </button>
+      </div>
     </div>
     <div class="ma"><button class="btn" onclick="closeMod()">Cancel</button>
     <button class="btn btnp" onclick="savePeriod('${id}')">Save</button></div>`);
+}
+function setPeriodStatusBtn(val){
+  document.getElementById('m-status').value=val;
+  const isActive=val==='active';
+  const ab=document.getElementById('m-status-active');
+  const ib=document.getElementById('m-status-inactive');
+  ab.style.border='2px solid '+(isActive?'#1a7a4a':'#ddd');
+  ab.style.background=isActive?'#e6f7ef':'#fff';
+  ab.style.color=isActive?'#1a7a4a':'#888';
+  ib.style.border='2px solid '+(!isActive?'#888':'#ddd');
+  ib.style.background=!isActive?'#f5f5f5':'#fff';
+  ib.style.color=!isActive?'#555':'#aaa';
 }
 async function savePeriod(id){
   const name=document.getElementById('m-n').value.trim();
