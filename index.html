@@ -6,6 +6,7 @@
 <title>Team Scheduler</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;font-family:sans-serif;font-size:14px;color:#111;background:#f0f0f0}
@@ -1358,222 +1359,251 @@ function downloadRangeCSV(){
   toast('CSV exported');
 }
 
-function downloadRangeXLSX(){
+async function downloadRangeXLSX(){
   const rows=calCache.rangeRows||[];
   if(!rows.length){toast('No data to export',true);return;}
   const period=calCache.period;
-  const wb=XLSX.utils.book_new();
-  const ws={};
+  toast('Preparing Excel…');
+
+  const wb=new ExcelJS.Workbook();
+  wb.creator='Team Scheduler';
+  wb.created=new Date();
+  const ws=wb.addWorksheet('Schedule',{views:[{showGridLines:false}]});
 
   // ── Palette ───────────────────────────────────────────────
-  const C={
-    navyDark:'1A3F6F', navy:'1E4E8C', navyLight:'D6E4F5',
-    apnBg:'D0E8F8', apnFg:'0C447C',
-    cnsBg:'D4F3E8', cnsFg:'085041',
-    dateBg:'EBF3FB', dateText:'1A3A5C',
-    rowAlt:'F4F7FB', rowWhite:'FFFFFF',
-    totBg:'D6E4F5', totText:'1A3F6F',
-    subtitleText:'6B7A90', borderCol:'C5D3E0',
-    medBorder:'8FA8C8', thick:'1E4E8C',
-    hrsAccent:'1A3F6F'
-  };
+  const navy    ={argb:'FF1E4E8C'};
+  const navyDark={argb:'FF1A3F6F'};
+  const navyLight={argb:'FFD6E4F5'};
+  const dateBg  ={argb:'FFEBF3FB'};
+  const dateText={argb:'FF1A3A5C'};
+  const apnBg   ={argb:'FFD0E8F8'};
+  const apnText ={argb:'FF0C447C'};
+  const cnsBg   ={argb:'FFD4F3E8'};
+  const cnsText ={argb:'FF085041'};
+  const rowAlt  ={argb:'FFF4F7FB'};
+  const rowWhite={argb:'FFFFFFFF'};
+  const totBg   ={argb:'FFD6E4F5'};
+  const subText ={argb:'FF6B7A90'};
+  const borderThin  ={style:'thin',  color:{argb:'FFC5D3E0'}};
+  const borderMed   ={style:'medium',color:{argb:'FF8FA8C8'}};
+  const borderThick ={style:'medium',color:{argb:'FF1E4E8C'}};
+  const white={argb:'FFFFFFFF'};
 
-  // ── Style factories ───────────────────────────────────────
-  const thinB ={style:'thin', color:{rgb:C.borderCol}};
-  const medB  ={style:'medium',color:{rgb:C.medBorder}};
-  const thickB={style:'thick', color:{rgb:C.thick}};
-  const noB   =undefined;
-
-  function border(t,r,b,l){return{top:t||thinB,right:r||thinB,bottom:b||thinB,left:l||thinB};}
-  const bInner  =border(thinB,thinB,thinB,thinB);
-  const bHdr    =border(medB,thinB,medB,medB);           // header row: thick top+bottom, medium sides
-  const bHdrLast=border(medB,medB,medB,thinB);           // last header cell
-  const bDataL  =border(thinB,thinB,thinB,medB);         // left edge data cell
-  const bDataR  =border(thinB,medB,thinB,thinB);         // right edge data cell
-  const bTotL   =border(medB,thinB,medB,medB);
-  const bTotR   =border(medB,medB,medB,thinB);
-  const bTotMid =border(medB,thinB,medB,thinB);
-
-  const aL={horizontal:'left',  vertical:'center'};
-  const aC={horizontal:'center',vertical:'center'};
-  const aR={horizontal:'right', vertical:'center'};
-
-  function cx(v,s){
-    const o={v,t:typeof v==='number'?'n':'s'};
-    if(s)o.s=s;
-    return o;
+  function applyBorder(cell,top,right,bottom,left){
+    cell.border={top:top||borderThin,right:right||borderThin,bottom:bottom||borderThin,left:left||borderThin};
   }
-  function num(v,s){return{v,t:'n',s};}
 
-  // ── Layout constants ──────────────────────────────────────
-  // Row 0: logo/title   Row 1: subtitle   Row 2: blank spacer   Row 3: header   Row 4+: data
-  const R_TITLE=0, R_SUB=1, R_SPACER=2, R_HDR=3, R_DATA=4;
-  const NCOLS=8; // A-H
-
-  // ── Merges list ───────────────────────────────────────────
-  const merges=[];
-  merges.push({s:{r:R_TITLE,c:0},e:{r:R_TITLE,c:NCOLS-1}});
-  merges.push({s:{r:R_SUB,  c:0},e:{r:R_SUB,  c:NCOLS-1}});
-  merges.push({s:{r:R_SPACER,c:0},e:{r:R_SPACER,c:NCOLS-1}});
-
-  // ── Row heights (pts) ─────────────────────────────────────
-  const rowH=[];
-  rowH[R_TITLE] ={hpt:32};
-  rowH[R_SUB]   ={hpt:18};
-  rowH[R_SPACER]={hpt:6};
-  rowH[R_HDR]   ={hpt:22};
+  // ── Column widths ─────────────────────────────────────────
+  ws.columns=[
+    {width:28},{width:12},{width:24},{width:8},
+    {width:13},{width:13},{width:14},{width:13}
+  ];
 
   // ── Title row ─────────────────────────────────────────────
-  ws[XLSX.utils.encode_cell({r:R_TITLE,c:0})]=cx(
-    `Schedule \u2014 ${period?period.name:''}`,
-    {font:{bold:true,sz:16,color:{rgb:C.navyDark}},
-     fill:{patternType:'solid',fgColor:{rgb:'FFFFFF'}},
-     alignment:aL}
-  );
+  ws.addRow([`Schedule — ${period?period.name:''}`]);
+  const titleRow=ws.lastRow;
+  titleRow.height=34;
+  ws.mergeCells(titleRow.number,1,titleRow.number,8);
+  const titleCell=titleRow.getCell(1);
+  titleCell.value=`Schedule — ${period?period.name:''}`;
+  titleCell.font={bold:true,size:16,color:navyDark};
+  titleCell.fill={type:'pattern',pattern:'solid',fgColor:white};
+  titleCell.alignment={vertical:'middle'};
 
   // ── Subtitle row ──────────────────────────────────────────
   const activeEmps=calCache.emps?
     (rangeFilter.empIds.size===0?calCache.emps:calCache.emps.filter(e=>rangeFilter.empIds.has(e.id))):[];
-  const internNames=activeEmps.map(e=>e.name).join(', ');
-  ws[XLSX.utils.encode_cell({r:R_SUB,c:0})]=cx(
-    `${fmtD(rangeFilter.from)} \u2192 ${fmtD(rangeFilter.to)}   \u00b7   ${rows.length} shift${rows.length!==1?'s':''}   \u00b7   ${activeEmps.length} intern${activeEmps.length!==1?'s':''}`,
-    {font:{sz:10,color:{rgb:C.subtitleText},italic:true},alignment:aL}
-  );
+  const uniqueDays=new Set(rows.map(r=>r.date)).size;
+  const uniqueInterns=new Set(rows.map(r=>r.emp.id)).size;
+  ws.addRow([`${fmtD(rangeFilter.from)} → ${fmtD(rangeFilter.to)}   ·   ${rows.length} shift${rows.length!==1?'s':''}   ·   ${uniqueInterns} intern${uniqueInterns!==1?'s':''}   ·   ${uniqueDays} working day${uniqueDays!==1?'s':''}`]);
+  const subRow=ws.lastRow;
+  subRow.height=18;
+  ws.mergeCells(subRow.number,1,subRow.number,8);
+  const subCell=subRow.getCell(1);
+  subCell.font={italic:true,size:10,color:subText};
+  subCell.fill={type:'pattern',pattern:'solid',fgColor:white};
+  subCell.alignment={vertical:'middle'};
 
-  // ── Spacer row (empty, no border) ─────────────────────────
-  for(let c=0;c<NCOLS;c++)
-    ws[XLSX.utils.encode_cell({r:R_SPACER,c})]=cx('',{fill:{patternType:'solid',fgColor:{rgb:'FFFFFF'}}});
+  // ── Spacer ────────────────────────────────────────────────
+  ws.addRow([]);
+  ws.lastRow.height=6;
 
   // ── Header row ────────────────────────────────────────────
-  const headers=['Date','Day','Intern','Type','Shift start','Shift end','Break (min)','Net hours'];
-  const hdrAligns=[aL,aL,aL,aC,aC,aC,aC,aC];
-  headers.forEach((h,ci)=>{
-    const isFirst=ci===0, isLast=ci===NCOLS-1;
-    ws[XLSX.utils.encode_cell({r:R_HDR,c:ci})]=cx(h,{
-      font:{bold:true,color:{rgb:'FFFFFF'},sz:11},
-      fill:{patternType:'solid',fgColor:{rgb:C.navy}},
-      border:isLast?bHdrLast:bHdr,
-      alignment:hdrAligns[ci]
-    });
+  ws.addRow(['Date','Day','Intern','Type','Shift start','Shift end','Break','Net hours']);
+  const hdrRow=ws.lastRow;
+  hdrRow.height=22;
+  hdrRow.eachCell(cell=>{
+    cell.font={bold:true,size:11,color:{argb:'FFFFFFFF'}};
+    cell.fill={type:'pattern',pattern:'solid',fgColor:navy};
+    cell.alignment={vertical:'middle',horizontal:'center'};
+    applyBorder(cell,borderMed,borderThin,borderMed,borderThin);
   });
+  hdrRow.getCell(1).alignment={vertical:'middle',horizontal:'left'};
+  hdrRow.getCell(2).alignment={vertical:'middle',horizontal:'left'};
+  hdrRow.getCell(3).alignment={vertical:'middle',horizontal:'left'};
+  applyBorder(hdrRow.getCell(1),borderMed,borderThin,borderMed,borderMed);
+  applyBorder(hdrRow.getCell(8),borderMed,borderMed,borderMed,borderThin);
 
   // ── Data rows ─────────────────────────────────────────────
   const byDate={};
   rows.forEach(r=>{if(!byDate[r.date])byDate[r.date]=[];byDate[r.date].push(r);});
   const dates=Object.keys(byDate).sort();
-  let ri=R_DATA, rowNum=0;
+  let rowNum=0;
+  const mergeQueue=[];
 
   dates.forEach(ds=>{
     const dayRows=byDate[ds];
     const isAlt=rowNum%2===1;
-    const rowBg={patternType:'solid',fgColor:{rgb:isAlt?C.rowAlt:C.rowWhite}};
-    const dateFill={patternType:'solid',fgColor:{rgb:C.dateBg}};
-    const dateFont={bold:true,sz:11,color:{rgb:C.dateText}};
+    const rowBgColor=isAlt?rowAlt:rowWhite;
+    const firstDataRowNum=ws.lastRow.number+1;
 
     dayRows.forEach((r,i)=>{
-      const isLastRow=(i===dayRows.length-1);
-      const empFill={patternType:'solid',fgColor:{rgb:r.emp.type==='A'?C.apnBg:C.cnsBg}};
-      const empColor=r.emp.type==='A'?C.apnFg:C.cnsFg;
+      const isLast=i===dayRows.length-1;
       const brk=r.sched.break_minutes!=null?r.sched.break_minutes:30;
       const hrs=parseFloat(r.hrs.toFixed(2));
+      const empBg=r.emp.type==='A'?apnBg:cnsBg;
+      const empTxt=r.emp.type==='A'?apnText:cnsText;
+      const groupBot=isLast?borderMed:borderThin;
 
-      // Bottom border of date group = medium to visually separate groups
-      const groupBottomB=isLastRow?medB:thinB;
-      const bDateCell=border(thinB,thinB,groupBottomB,medB);
-      const bRightCell=border(thinB,medB,groupBottomB,thinB);
-      const bMidCell  =border(thinB,thinB,groupBottomB,thinB);
-      const bEmpCell  =border(thinB,thinB,groupBottomB,thinB);
+      ws.addRow([
+        i===0?fmtFull(ds):'',  // Date
+        r.dayName,              // Day
+        r.emp.name,             // Intern
+        r.emp.type==='A'?'APN':'CNS', // Type
+        r.sched.shift_start,   // Shift start
+        r.sched.shift_end,     // Shift end
+        brk,                   // Break
+        hrs                    // Net hours
+      ]);
+      const row=ws.lastRow;
+      row.height=19;
 
-      // Col 0 — Date (only text on first row of group, always styled)
-      ws[XLSX.utils.encode_cell({r:ri,c:0})]=cx(i===0?fmtFull(ds):'',
-        {font:dateFont,fill:dateFill,border:bDateCell,alignment:aL});
-      // Col 1 — Day name
-      ws[XLSX.utils.encode_cell({r:ri,c:1})]=cx(r.dayName,
-        {font:{sz:11,color:{rgb:C.dateText}},fill:dateFill,border:bMidCell,alignment:aL});
-      // Col 2 — Intern name
-      ws[XLSX.utils.encode_cell({r:ri,c:2})]=cx(r.emp.name,
-        {font:{bold:true,sz:11},fill:empFill,border:bEmpCell,alignment:aL});
-      // Col 3 — Type badge
-      ws[XLSX.utils.encode_cell({r:ri,c:3})]=cx(r.emp.type==='A'?'APN':'CNS',
-        {font:{sz:10,bold:true,color:{rgb:empColor}},fill:empFill,border:bMidCell,alignment:aC});
-      // Col 4 — Shift start
-      ws[XLSX.utils.encode_cell({r:ri,c:4})]=cx(r.sched.shift_start,
-        {font:{sz:11},fill:rowBg,border:bMidCell,alignment:aC});
-      // Col 5 — Shift end
-      ws[XLSX.utils.encode_cell({r:ri,c:5})]=cx(r.sched.shift_end,
-        {font:{sz:11},fill:rowBg,border:bMidCell,alignment:aC});
-      // Col 6 — Break
-      ws[XLSX.utils.encode_cell({r:ri,c:6})]=num(brk,
-        {font:{sz:11,color:{rgb:'666666'}},fill:rowBg,border:bMidCell,alignment:aC,z:'0" min"'});
-      // Col 7 — Net hours
-      ws[XLSX.utils.encode_cell({r:ri,c:7})]=num(hrs,
-        {font:{bold:true,sz:11,color:{rgb:C.hrsAccent}},fill:rowBg,border:bRightCell,alignment:aC,z:'0.00"h"'});
+      // Col A — Date
+      const cA=row.getCell(1);
+      cA.font={bold:true,size:11,color:dateText};
+      cA.fill={type:'pattern',pattern:'solid',fgColor:dateBg};
+      cA.alignment={vertical:'middle',horizontal:'left'};
+      applyBorder(cA,borderThin,borderThin,groupBot,borderMed);
 
-      rowH[ri]={hpt:18};
-      ri++;
+      // Col B — Day
+      const cB=row.getCell(2);
+      cB.font={size:11,color:dateText};
+      cB.fill={type:'pattern',pattern:'solid',fgColor:dateBg};
+      cB.alignment={vertical:'middle',horizontal:'left'};
+      applyBorder(cB,borderThin,borderThin,groupBot,borderThin);
+
+      // Col C — Intern name
+      const cC=row.getCell(3);
+      cC.font={bold:true,size:11};
+      cC.fill={type:'pattern',pattern:'solid',fgColor:empBg};
+      cC.alignment={vertical:'middle',horizontal:'left'};
+      applyBorder(cC,borderThin,borderThin,groupBot,borderThin);
+
+      // Col D — Type
+      const cD=row.getCell(4);
+      cD.font={bold:true,size:10,color:empTxt};
+      cD.fill={type:'pattern',pattern:'solid',fgColor:empBg};
+      cD.alignment={vertical:'middle',horizontal:'center'};
+      applyBorder(cD,borderThin,borderThin,groupBot,borderThin);
+
+      // Col E — Shift start
+      const cE=row.getCell(5);
+      cE.font={size:11};
+      cE.fill={type:'pattern',pattern:'solid',fgColor:rowBgColor};
+      cE.alignment={vertical:'middle',horizontal:'center'};
+      applyBorder(cE,borderThin,borderThin,groupBot,borderThin);
+
+      // Col F — Shift end
+      const cF=row.getCell(6);
+      cF.font={size:11};
+      cF.fill={type:'pattern',pattern:'solid',fgColor:rowBgColor};
+      cF.alignment={vertical:'middle',horizontal:'center'};
+      applyBorder(cF,borderThin,borderThin,groupBot,borderThin);
+
+      // Col G — Break
+      const cG=row.getCell(7);
+      cG.value=brk;
+      cG.numFmt='0" min"';
+      cG.font={size:11,color:{argb:'FF666666'}};
+      cG.fill={type:'pattern',pattern:'solid',fgColor:rowBgColor};
+      cG.alignment={vertical:'middle',horizontal:'center'};
+      applyBorder(cG,borderThin,borderThin,groupBot,borderThin);
+
+      // Col H — Net hours
+      const cH=row.getCell(8);
+      cH.value=hrs;
+      cH.numFmt='0.00"h"';
+      cH.font={bold:true,size:11,color:navyDark};
+      cH.fill={type:'pattern',pattern:'solid',fgColor:rowBgColor};
+      cH.alignment={vertical:'middle',horizontal:'center'};
+      applyBorder(cH,borderThin,borderMed,groupBot,borderThin);
     });
 
-    // Merge date column for the group
-    if(dayRows.length>1)
-      merges.push({s:{r:ri-dayRows.length,c:0},e:{r:ri-1,c:0}});
+    // Queue merge for date column if multiple interns share this day
+    if(dayRows.length>1){
+      const lastRowNum=ws.lastRow.number;
+      mergeQueue.push([firstDataRowNum,1,lastRowNum,1]);
+    }
     rowNum++;
   });
 
+  // Apply merges (after rows are added)
+  mergeQueue.forEach(([r1,c1,r2,c2])=>ws.mergeCells(r1,c1,r2,c2));
+
   // ── Totals row ────────────────────────────────────────────
   const total=parseFloat(rows.reduce((a,r)=>a+r.hrs,0).toFixed(2));
-  const totFill={patternType:'solid',fgColor:{rgb:C.totBg}};
-  const totFont={bold:true,sz:11,color:{rgb:C.totText}};
+  ws.addRow(['Total net hours','','','','','','',total]);
+  const totRow=ws.lastRow;
+  totRow.height=23;
+  ws.mergeCells(totRow.number,1,totRow.number,7);
+  totRow.eachCell((cell,ci)=>{
+    cell.fill={type:'pattern',pattern:'solid',fgColor:totBg};
+    cell.font={bold:true,size:ci===8?13:11,color:navyDark};
+    applyBorder(cell,borderMed,ci===8?borderMed:borderThin,borderMed,ci===1?borderMed:borderThin);
+  });
+  totRow.getCell(1).alignment={vertical:'middle',horizontal:'right'};
+  totRow.getCell(8).numFmt='0.00"h"';
+  totRow.getCell(8).alignment={vertical:'middle',horizontal:'center'};
 
-  // Merge cols 0-6 for "Total net hours" label
-  merges.push({s:{r:ri,c:0},e:{r:ri,c:6}});
-  ws[XLSX.utils.encode_cell({r:ri,c:0})]=cx('Total net hours',
-    {font:{...totFont,sz:12},fill:totFill,border:bTotL,alignment:aR});
-  for(let c=1;c<=6;c++)
-    ws[XLSX.utils.encode_cell({r:ri,c})]=cx('',{fill:totFill,border:bTotMid});
-  ws[XLSX.utils.encode_cell({r:ri,c:7})]=num(total,
-    {font:{...totFont,sz:13},fill:totFill,border:bTotR,alignment:aC,z:'0.00"h"'});
-  rowH[ri]={hpt:22};
+  // ── Spacer ────────────────────────────────────────────────
+  ws.addRow([]);
+  ws.lastRow.height=10;
 
-  // ── Blank row after totals ─────────────────────────────────
-  ri++;
-  rowH[ri]={hpt:8};
-  for(let c=0;c<NCOLS;c++)
-    ws[XLSX.utils.encode_cell({r:ri,c})]=cx('',{});
-
-  // ── Summary stats block (2 cols wide, bottom-left) ─────────
-  ri++;
-  const statFill={patternType:'solid',fgColor:{rgb:C.navyLight}};
-  const statLabelFont={sz:10,color:{rgb:C.subtitleText}};
-  const statValFont={bold:true,sz:11,color:{rgb:C.navyDark}};
-  const uniqueInterns=new Set(rows.map(r=>r.emp.id)).size;
-  const uniqueDays=new Set(rows.map(r=>r.date)).size;
+  // ── Summary stats block ───────────────────────────────────
   const stats=[
-    ['Period',period?period.name:'—'],
-    ['Date range',`${fmtD(rangeFilter.from)} → ${fmtD(rangeFilter.to)}`],
-    ['Working days',uniqueDays],
-    ['Interns',uniqueInterns],
-    ['Total shifts',rows.length],
-    ['Total net hours',total],
+    ['Period',          period?period.name:'—'],
+    ['Date range',      `${fmtD(rangeFilter.from)} → ${fmtD(rangeFilter.to)}`],
+    ['Working days',    uniqueDays],
+    ['Interns',         uniqueInterns],
+    ['Total shifts',    rows.length],
+    ['Total net hours', total],
   ];
   stats.forEach(([label,val])=>{
-    ws[XLSX.utils.encode_cell({r:ri,c:0})]=cx(label,{font:statLabelFont,fill:statFill,border:bInner,alignment:aL});
-    const isNum=typeof val==='number';
-    const cell=isNum?num(val,{font:statValFont,fill:{patternType:'solid',fgColor:{rgb:'FFFFFF'}},border:bInner,alignment:aL,z:label.includes('hours')?'0.00"h"':undefined})
-      :cx(String(val),{font:statValFont,fill:{patternType:'solid',fgColor:{rgb:'FFFFFF'}},border:bInner,alignment:aL});
-    ws[XLSX.utils.encode_cell({r:ri,c:1})]=cell;
-    rowH[ri]={hpt:17};
-    ri++;
+    ws.addRow([label,val]);
+    const sr=ws.lastRow;
+    sr.height=17;
+    const lc=sr.getCell(1);
+    lc.font={size:10,color:subText};
+    lc.fill={type:'pattern',pattern:'solid',fgColor:navyLight};
+    lc.alignment={vertical:'middle'};
+    applyBorder(lc,borderThin,borderThin,borderThin,borderMed);
+    const vc=sr.getCell(2);
+    vc.font={bold:true,size:11,color:navyDark};
+    vc.fill={type:'pattern',pattern:'solid',fgColor:white};
+    vc.alignment={vertical:'middle'};
+    if(label==='Total net hours'){vc.numFmt='0.00"h"';}
+    applyBorder(vc,borderThin,borderMed,borderThin,borderThin);
   });
 
-  // ── Sheet metadata ─────────────────────────────────────────
-  ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:ri-1,c:NCOLS-1}});
-  ws['!merges']=merges;
-  ws['!cols']=[{wch:26},{wch:11},{wch:22},{wch:7},{wch:12},{wch:12},{wch:13},{wch:12}];
-  ws['!rows']=rowH;
-
-  XLSX.utils.book_append_sheet(wb,ws,'Schedule');
+  // ── Write & download ──────────────────────────────────────
   const fname=`schedule_${period?period.name.replace(/\s+/g,'_'):'range'}_${rangeFilter.from}_${rangeFilter.to}.xlsx`;
-  XLSX.writeFile(wb,fname);
+  const buffer=await wb.xlsx.writeBuffer();
+  const blob=new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=fname;
+  a.click();
+  URL.revokeObjectURL(a.href);
   toast('Excel exported');
 }
 
