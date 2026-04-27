@@ -481,6 +481,18 @@ async function loadCopyPreview(toPeriodId,toPeriodStart,toPeriodEnd){
     const isConflict=existingNames.has(e.name.toLowerCase());
     const schs=(e.schedules||[]).filter(s=>s.from_date<=toEnd&&s.to_date>=toStart);
     const schDetail=schs.map(s=>`<span style="font-size:10px;color:#888">${s.days.join(', ')} &nbsp;${s.shift_start}–${s.shift_end}</span>`).join('<br>');
+    // Conflict rows are locked — unchecked, greyed, not clickable
+    if(isConflict){
+      return `<tr id="copy-row-${e.id}" style="opacity:.5;background:#fafafa">
+        <td style="width:36px;text-align:center">
+          <span id="copy-chk-${e.id}" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:3px;border:1.5px solid #ddd;background:#fff;flex-shrink:0"></span>
+        </td>
+        <td style="padding:7px 8px;font-weight:500;color:#aaa">${e.name}</td>
+        <td style="padding:7px 8px"><span class="${e.type==='A'?'ba':'bc'}" style="opacity:.5">${e.type==='A'?'APN':'Counseling'}</span></td>
+        <td style="padding:7px 8px;line-height:1.6">${schDetail}</td>
+        <td style="padding:7px 8px"><span style="color:#a32d2d;font-size:11px;font-weight:500">&#9888; Already exists — skipped</span></td>
+      </tr>`;
+    }
     return `<tr id="copy-row-${e.id}" style="cursor:pointer" onclick="toggleCopyRow('${e.id}')">
       <td style="width:36px;text-align:center">
         <span id="copy-chk-${e.id}" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:3px;border:1.5px solid #185FA5;background:#185FA5;flex-shrink:0">
@@ -490,15 +502,13 @@ async function loadCopyPreview(toPeriodId,toPeriodStart,toPeriodEnd){
       <td style="padding:7px 8px;font-weight:500">${e.name}</td>
       <td style="padding:7px 8px"><span class="${e.type==='A'?'ba':'bc'}">${e.type==='A'?'APN':'Counseling'}</span></td>
       <td style="padding:7px 8px;line-height:1.6">${schDetail}</td>
-      <td style="padding:7px 8px">${isConflict
-        ?'<span style="color:#a32d2d;font-size:11px;font-weight:500">&#9888; Replaces existing</span>'
-        :'<span style="color:#0f6e56;font-size:11px">&#10003; New</span>'}</td>
+      <td style="padding:7px 8px"><span style="color:#0f6e56;font-size:11px">&#10003; New</span></td>
     </tr>`;
   }).join('');
 
   area.innerHTML=`
-    ${hasAnyConflict?`<div style="background:#FCEBEB;color:#a32d2d;border-radius:8px;padding:9px 13px;font-size:12px;margin-bottom:10px">
-      <strong>&#9888;</strong> Interns marked "Replaces existing" will have their current schedules deleted and replaced.
+    ${hasAnyConflict?`<div style="background:#FFF8E6;color:#8a5a00;border:1px solid #f5cfa0;border-radius:8px;padding:9px 13px;font-size:12px;margin-bottom:10px">
+      <strong>&#9432; Note:</strong> Interns marked "Already exists" already have schedules in this period and will not be copied. Only new interns will be added.
     </div>`:''}
     <div style="max-height:300px;overflow-y:auto;border:1px solid #e5e5e5;border-radius:8px">
       <table style="width:100%;border-collapse:collapse;font-size:13px">
@@ -518,11 +528,21 @@ async function loadCopyPreview(toPeriodId,toPeriodStart,toPeriodEnd){
         <tbody id="copy-tbody">${rows}</tbody>
       </table>
     </div>
-    <div style="font-size:12px;color:#aaa;margin-top:7px" id="copy-sel-count">${overlapping.length} of ${overlapping.length} selected</div>`;
+    <div style="font-size:12px;color:#aaa;margin-top:7px" id="copy-sel-count">${overlapping.filter(e=>!existingNames.has(e.name.toLowerCase())).length} of ${overlapping.length} selected</div>`;
 
-  // Store intern ids for selection tracking
-  window._copyInterns=overlapping.map(e=>e.id);
-  window._copySelected=new Set(overlapping.map(e=>e.id));
+  // Store intern ids — conflicts are excluded from selectable set entirely
+  const copyableIds=overlapping.filter(e=>!existingNames.has(e.name.toLowerCase())).map(e=>e.id);
+  window._copyInterns=copyableIds;
+  window._copySelected=new Set(copyableIds);
+
+  // If all copyable are selected but some are locked, show partial state on select-all
+  const allChk=document.getElementById('copy-sel-all');
+  if(allChk&&hasAnyConflict&&copyableIds.length>0){
+    // Leave as fully checked (all copyable are selected by default)
+  } else if(allChk&&!copyableIds.length){
+    allChk.style.background='#fff';
+    allChk.innerHTML='';
+  }
 
   updateCopyActions(toPeriodId,toPeriodStart,toPeriodEnd,overlapping,existingNames,hasAnyConflict);
 }
@@ -577,16 +597,16 @@ function toggleCopyAll(){
 function updateCopyActions(toPeriodId,toPeriodStart,toPeriodEnd,overlapping,existingNames,hasConflict){
   const actions=document.getElementById('copy-preview-actions');
   if(!actions)return;
-  const selConflicts=overlapping.filter(e=>window._copySelected.has(e.id)&&existingNames.has(e.name.toLowerCase()));
+  const copyableCount=(window._copyInterns||[]).length;
   actions.innerHTML=`
     <button class="btn" onclick="closeMod()">Cancel</button>
-    <button class="btn btnp" id="copy-confirm-btn"
+    <button class="btn btnp" id="copy-confirm-btn" ${copyableCount===0?'disabled':''}
       onclick="confirmCopySchedule('${document.getElementById('m-copy-src').value}','${toPeriodId}','${toPeriodStart}','${toPeriodEnd}')">
-      ${hasConflict?'&#9888; ':''}Copy selected
+      Copy selected
     </button>`;
 }
 
-// Step 3 — execute copy for selected interns only
+// Step 3 — execute copy for selected interns only (never overwrites existing)
 async function confirmCopySchedule(srcId,toPeriodId,toStart,toEnd){
   const btn=document.getElementById('copy-confirm-btn');
   if(btn){btn.disabled=true;btn.textContent='Copying…';}
@@ -595,47 +615,39 @@ async function confirmCopySchedule(srcId,toPeriodId,toStart,toEnd){
 
   const {data:srcEmps}=await db.from('employees').select('*, schedules(*)').eq('period_id',srcId).order('name');
   const {data:existingEmps}=await db.from('employees').select('id,name').eq('period_id',toPeriodId);
-  const existingMap={};
-  (existingEmps||[]).forEach(e=>existingMap[e.name.toLowerCase()]=e.id);
+  const existingNames=new Set((existingEmps||[]).map(e=>e.name.toLowerCase()));
 
-  let created=0,updated=0,scheds=0,errors=0;
+  let created=0,scheds=0,skipped=0,errors=0;
 
   for(const srcEmp of (srcEmps||[])){
     if(!selectedIds.has(srcEmp.id))continue;
+    // Skip if intern already exists in target period
+    if(existingNames.has(srcEmp.name.toLowerCase())){skipped++;continue;}
+
     const overlappingSchs=(srcEmp.schedules||[]).filter(s=>s.from_date<=toEnd&&s.to_date>=toStart);
     if(!overlappingSchs.length)continue;
 
-    const nameKey=srcEmp.name.toLowerCase();
-    let empId=existingMap[nameKey];
-
-    if(empId){
-      // Intern exists — replace schedules
-      await db.from('schedules').delete().eq('employee_id',empId);
-      updated++;
-    }else{
-      // Create new intern
-      empId=uid();
-      const {error}=await db.from('employees').insert({id:empId,period_id:toPeriodId,name:srcEmp.name,type:srcEmp.type});
-      if(error){errors++;continue;}
-      existingMap[nameKey]=empId;
-      created++;
-    }
+    // Create new intern in target period
+    const empId=uid();
+    const {error}=await db.from('employees').insert({id:empId,period_id:toPeriodId,name:srcEmp.name,type:srcEmp.type});
+    if(error){errors++;continue;}
+    created++;
 
     for(const s of overlappingSchs){
       const fromDate=s.from_date<toStart?toStart:s.from_date;
       const toDate=s.to_date>toEnd?toEnd:s.to_date;
-      const {error}=await db.from('schedules').insert({
+      const {error:se}=await db.from('schedules').insert({
         id:uid(),employee_id:empId,days:s.days,
         shift_start:s.shift_start,shift_end:s.shift_end,
         break_minutes:s.break_minutes!=null?s.break_minutes:30,
         from_date:fromDate,to_date:toDate
       });
-      if(error)errors++;else scheds++;
+      if(se)errors++;else scheds++;
     }
   }
 
   closeMod();
-  toast(`Done: ${created} new, ${updated} updated, ${scheds} schedules copied${errors?' ('+errors+' errors)':''}`);
+  toast(`Done: ${created} intern${created!==1?'s':''} added, ${scheds} schedule${scheds!==1?'s':''} copied${skipped?` · ${skipped} skipped (already exist)`:''}${errors?` · ${errors} error(s)`:''}`);
   renderPeriods();
 }
 
