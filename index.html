@@ -173,6 +173,7 @@ td{padding:7px 9px;border-bottom:1px solid #f0f0f0}
         <div style="display:flex;gap:4px">
           <button class="tab active" id="cal-tab-grid" onclick="calSetTab('grid')">Full calendar</button>
           <button class="tab" id="cal-tab-person" onclick="calSetTab('person')">By intern</button>
+          <button class="tab" id="cal-tab-range" onclick="calSetTab('range')">Schedule per period</button>
         </div>
         <div id="cal-person-picker-wrap" style="display:none;align-items:center;gap:8px">
           <label style="font-size:12px;color:#888;margin:0;white-space:nowrap">Intern:</label>
@@ -1101,25 +1102,159 @@ async function renderCal(){
     updateEmpFilterUI();
     const filteredEmps=calEmpFilter.size===0?emps:emps.filter(e=>calEmpFilter.has(e.id));
     if(calTab==='grid')renderCalGrid(period,filteredEmps,emps,ct,vacSet,vacMap);
+    else if(calTab==='range')renderCalRange(period,emps,ct);
     else renderCalPerson(period,emps,ct,vacSet,vacMap);
   }catch(err){
     ct.innerHTML='<div class="alrt err" style="margin:16px">&#9888; Calendar error: '+err.message+'</div>';
     console.error('renderCal error:',err);
   }
 }
-function calPickPeriod(id){currentPeriod=id;calPersonId=null;calEmpFilter=new Set();renderCal();}
+function calPickPeriod(id){currentPeriod=id;calPersonId=null;calEmpFilter=new Set();rangeFilter={from:'',to:'',empIds:new Set()};renderCal();}
 function calSetPerson(id){calPersonId=id;renderCalPerson(calCache.period,calCache.emps,document.getElementById('cal-content'));}
 function calSetTab(t){
   calTab=t;
   document.getElementById('cal-tab-grid').classList.toggle('active',t==='grid');
   document.getElementById('cal-tab-person').classList.toggle('active',t==='person');
+  document.getElementById('cal-tab-range').classList.toggle('active',t==='range');
   document.getElementById('cal-person-picker-wrap').style.display=t==='person'?'flex':'none';
-  document.getElementById('emp-filter-wrap').style.display=t==='person'?'none':'block';
+  document.getElementById('emp-filter-wrap').style.display=t==='grid'?'block':'none';
   document.getElementById('cal-export-btns').style.display=t==='person'?'flex':'none';
   if(!calCache.period||!calCache.emps)return;
   const ct=document.getElementById('cal-content');
   if(t==='grid'){const fe=calEmpFilter.size===0?calCache.emps:calCache.emps.filter(e=>calEmpFilter.has(e.id));renderCalGrid(calCache.period,fe,calCache.emps,ct,calCache.vacSet,calCache.vacMap);}
+  else if(t==='range')renderCalRange(calCache.period,calCache.emps,ct);
   else renderCalPerson(calCache.period,calCache.emps,ct,calCache.vacSet,calCache.vacMap);
+}
+
+// ── SCHEDULE PER PERIOD ───────────────────────────────────
+function nextWeekRange(){
+  const today=new Date();
+  const day=today.getDay();
+  const daysToMon=day===0?1:(8-day);
+  const mon=new Date(today);mon.setDate(today.getDate()+daysToMon);
+  const fri=new Date(mon);fri.setDate(mon.getDate()+4);
+  const fmt=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  return{from:fmt(mon),to:fmt(fri)};
+}
+let rangeFilter={from:'',to:'',empIds:new Set()};
+
+function renderCalRange(period,emps,ct){
+  if(!rangeFilter.from||!rangeFilter.to){const nw=nextWeekRange();rangeFilter.from=nw.from;rangeFilter.to=nw.to;}
+  const pFrom=rangeFilter.from<period.start_date?period.start_date:rangeFilter.from;
+  const pTo=rangeFilter.to>period.end_date?period.end_date:rangeFilter.to;
+
+  const internCheckboxes=emps.map(e=>{
+    const sel=rangeFilter.empIds.size===0||rangeFilter.empIds.has(e.id);
+    const bg=e.type==='A'?'#daeaf7':'#c8f0e2';
+    const col=e.type==='A'?'#0C447C':'#085041';
+    return`<label style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:20px;border:1px solid ${sel?'#185FA5':'#ddd'};background:${sel?'#E6F1FB':'#fff'};cursor:pointer;font-size:12px;font-weight:500;color:${sel?'#185FA5':'#555'};user-select:none">
+      <input type="checkbox" onchange="rangeToggleEmp('${e.id}',this.checked)" ${sel?'checked':''} style="display:none">
+      ${e.name}<span style="padding:1px 6px;border-radius:10px;font-size:10px;background:${bg};color:${col}">${e.type}</span>
+    </label>`;
+  }).join('');
+
+  const activeEmps=rangeFilter.empIds.size===0?emps:emps.filter(e=>rangeFilter.empIds.has(e.id));
+  const rows=[];
+  const d=parseLocalDate(pFrom),endD=parseLocalDate(pTo);
+  while(d<=endD){
+    const ds=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const dow=d.getDay(),di=dow===0?6:dow-1,dn=DAYS[di];
+    if(!globalVacSet.has(ds)){
+      activeEmps.forEach(e=>{
+        (e.schedules||[]).forEach(s=>{
+          if((s.days||[]).includes(dn)&&ds>=s.from_date&&ds<=s.to_date)
+            rows.push({date:ds,dayName:DAYF[di],emp:e,sched:s,hrs:netHrs(s)});
+        });
+      });
+    }
+    d.setDate(d.getDate()+1);
+  }
+
+  const byDate={};
+  rows.forEach(r=>{if(!byDate[r.date])byDate[r.date]=[];byDate[r.date].push(r);});
+  const dates=Object.keys(byDate).sort();
+  const totalHrs=rows.reduce((a,r)=>a+r.hrs,0);
+
+  let tableHtml='';
+  if(!rows.length){
+    tableHtml='<div class="empty">No shifts found for the selected criteria.</div>';
+  }else{
+    let tbody='';
+    dates.forEach(ds=>{
+      byDate[ds].forEach((r,i)=>{
+        const empBg=r.emp.type==='A'?'#B5D4F4':'#9FE1CB';
+        const empCol=r.emp.type==='A'?'#0C447C':'#085041';
+        tbody+=`<tr>
+          ${i===0?`<td rowspan="${byDate[ds].length}" style="padding:7px 12px;font-weight:500;vertical-align:middle;border-right:2px solid #f0f0f0;white-space:nowrap;background:#fafafa">${fmtFull(ds)}</td>`:''}
+          <td style="padding:7px 10px">
+            <span style="display:inline-flex;align-items:center;gap:6px">
+              <span style="width:24px;height:24px;border-radius:50%;background:${empBg};display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:${empCol};flex-shrink:0">${r.emp.name.split(' ').map(x=>x[0]).join('')}</span>
+              ${r.emp.name}
+            </span>
+          </td>
+          <td style="padding:7px 10px">${r.sched.shift_start}&nbsp;&ndash;&nbsp;${r.sched.shift_end}</td>
+          <td style="padding:7px 10px;color:#888">${r.sched.break_minutes!=null?r.sched.break_minutes:30} min</td>
+          <td style="padding:7px 10px;font-weight:500">${r.hrs.toFixed(1)}h</td>
+        </tr>`;
+      });
+    });
+    tableHtml=`<div class="card" style="padding:0;overflow:hidden">
+      <table class="person-table">
+        <thead><tr>
+          <th style="padding:8px 12px;background:#f7f7f5">Date</th>
+          <th style="padding:8px 10px;background:#f7f7f5">Intern</th>
+          <th style="padding:8px 10px;background:#f7f7f5">Shift</th>
+          <th style="padding:8px 10px;background:#f7f7f5">Break</th>
+          <th style="padding:8px 10px;background:#f7f7f5">Net hrs</th>
+        </tr></thead>
+        <tbody>${tbody}</tbody>
+        <tfoot><tr style="background:#f7f7f5;font-weight:600">
+          <td colspan="4" style="padding:8px 12px;text-align:right;color:#888">Total net hours:</td>
+          <td style="padding:8px 12px">${totalHrs.toFixed(1)}h</td>
+        </tr></tfoot>
+      </table></div>`;
+  }
+
+  const allPill=`<span onclick="rangeSelectAll()" style="display:inline-flex;align-items:center;padding:5px 12px;border-radius:20px;border:1px solid ${rangeFilter.empIds.size===0?'#185FA5':'#ddd'};background:${rangeFilter.empIds.size===0?'#E6F1FB':'#fff'};cursor:pointer;font-size:12px;font-weight:600;color:${rangeFilter.empIds.size===0?'#185FA5':'#555'};user-select:none">All</span>`;
+
+  ct.innerHTML=`<div style="flex:1;overflow-y:auto;min-height:0;padding-bottom:16px">
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start">
+        <div style="display:flex;gap:12px;align-items:flex-end">
+          <div>
+            <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">From</label>
+            <input type="date" value="${rangeFilter.from}" min="${period.start_date}" max="${period.end_date}"
+              onchange="rangeFilter.from=this.value;renderCalRange(calCache.period,calCache.emps,document.getElementById('cal-content'))"
+              style="font-size:13px;padding:6px 10px;border:1px solid #ddd;border-radius:7px">
+          </div>
+          <div>
+            <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">To</label>
+            <input type="date" value="${rangeFilter.to}" min="${period.start_date}" max="${period.end_date}"
+              onchange="rangeFilter.to=this.value;renderCalRange(calCache.period,calCache.emps,document.getElementById('cal-content'))"
+              style="font-size:13px;padding:6px 10px;border:1px solid #ddd;border-radius:7px">
+          </div>
+        </div>
+        <div style="flex:1;min-width:220px">
+          <label style="font-size:12px;color:#888;display:block;margin-bottom:6px">Interns</label>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">${allPill}${internCheckboxes}</div>
+        </div>
+      </div>
+    </div>
+    ${tableHtml}
+  </div>`;
+}
+function rangeToggleEmp(id,checked){
+  if(rangeFilter.empIds.size===0){
+    (calCache.emps||[]).forEach(e=>{if(e.id!==id)rangeFilter.empIds.add(e.id);});
+  }else{
+    if(checked)rangeFilter.empIds.add(id);else rangeFilter.empIds.delete(id);
+    if(rangeFilter.empIds.size>=(calCache.emps||[]).length)rangeFilter.empIds=new Set();
+  }
+  renderCalRange(calCache.period,calCache.emps,document.getElementById('cal-content'));
+}
+function rangeSelectAll(){
+  rangeFilter.empIds=new Set();
+  renderCalRange(calCache.period,calCache.emps,document.getElementById('cal-content'));
 }
 
 function renderCalGrid(period,emps,allEmps,ct,vacSet,vacMap){
